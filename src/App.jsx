@@ -5,6 +5,7 @@ import SignIn from './SignIn.jsx'
 import QuickReview from './QuickReview.jsx'
 import AllOutstanding from './AllOutstanding.jsx'
 import ReviewQueue from './ReviewQueue.jsx'
+import Transfers from './Transfers.jsx'
 
 import Overview from './Overview.jsx'
 import PaymentsDue from './PaymentsDue.jsx'
@@ -56,7 +57,7 @@ const MENUS = [
     { key: 'quick',    label: '0 · Quick review',                  Component: QuickReview },
     { key: 'invoices', label: '1 · Allocate invoices',             Component: () => <ReviewQueue kind="invoices" /> },
     { key: 'docs',     label: '2 · Assign receipts to invoices',   Component: () => <ReviewQueue kind="docs" /> },
-    { key: 'hold',     label: '3 · Transfers and payments',        Component: () => <ReviewQueue kind="hold" /> },
+    { key: 'hold',     label: '3 · Transfers and payments',        Component: Transfers },
     { key: 'plain',    label: '4 · Allocate expenses',             Component: () => <ReviewQueue kind="plain" /> },
     { key: 'apwait',   label: '5 · Waiting on documents',          Component: () => <ReviewQueue kind="apwait" /> },
     { key: 'docpair',  label: '6 · Document matching',             Component: () => <ReviewQueue kind="docpair" /> },

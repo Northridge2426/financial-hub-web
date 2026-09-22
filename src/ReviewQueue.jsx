@@ -22,8 +22,6 @@ export const QUEUES = [
 const NOTE = {
   docs: ['Assign receipts to invoices',
     'Payments the books expect an invoice behind. An explicit "apply to an invoice" mark beats both the vendor group and the absence of an invoice.'],
-  hold: ['Transfers and payments',
-    'Money moving between your own accounts, however the bank described it. These need a contra account, not an expense category.'],
   plain: ['Allocate expenses',
     'What is left once every other queue has taken its own — ordinary purchases with no named vendor and no paperwork outstanding.'],
   apwait: ['Waiting on documents',
