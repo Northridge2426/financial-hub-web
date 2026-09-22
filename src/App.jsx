@@ -19,6 +19,10 @@ import CashFlow from './CashFlow.jsx'
 import Gst from './Gst.jsx'
 import Projects from './Projects.jsx'
 import Reminders from './Reminders.jsx'
+import Recurring from './Recurring.jsx'
+import StatementsDue from './StatementsDue.jsx'
+import BankVerification from './BankVerification.jsx'
+import VsSage from './VsSage.jsx'
 
 /** Pages, in the order the console lists them. Add one per build.
  *  Components, not elements — so a page mounts fresh when you switch to it
@@ -42,6 +46,10 @@ const PAGES = [
   { key: 'gst', label: 'GST', Component: Gst },
   { key: 'projects', label: 'Projects', Component: Projects },
   { key: 'reminders', label: 'Reminders', Component: Reminders },
+  { key: 'recurring', label: 'Recurring', Component: Recurring },
+  { key: 'statements', label: 'Statements due', Component: StatementsDue },
+  { key: 'bankrec', label: 'Bank check', Component: BankVerification },
+  { key: 'variance', label: 'Vs Sage', Component: VsSage },
 ]
 
 export default function App() {

@@ -158,6 +158,11 @@ tr.secrow td {
 td.drill { cursor: pointer; }
 td.drill:hover { background: #eef2ff; }
 
+/* A month-by-month grid gets wide. Let it scroll rather than crushing columns. */
+.grid-table { min-width: 100%; }
+.card:has(.grid-table) { overflow-x: auto; }
+td.gap { color: #cbd5e1; }
+
 /* ---------- sign in ---------- */
 .signin { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .signin form { width: 100%; max-width: 330px; }
