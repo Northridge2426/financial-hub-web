@@ -1,0 +1,69 @@
+name: Build and deploy
+
+# Builds the app on GitHub's machines and publishes it to GitHub Pages, so
+# nothing needs installing locally. Runs on every push to main, and can be
+# started by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages needs these; the default token is read-only.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No package-lock.json is committed yet, so `npm install` rather than
+      # `npm ci`. Once a lock file exists, switch this to `npm ci` for
+      # reproducible builds.
+      - name: Install
+        run: npm install
+
+      - name: Build
+        env:
+          # Injected at build time from repository secrets rather than committed.
+          # The publishable key is safe in a browser — RLS gates everything and an
+          # unauthenticated caller reads zero rows — but there is no reason for it
+          # to sit in git history.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          # Pages serves the site from /<repo>/, so assets need that prefix.
+          VITE_BASE: /${{ github.event.repository.name }}/
+        run: npm run build
+
+      # A single-page app has no real files at /payments, so a deep link or a
+      # refresh would 404. Pages serves 404.html for anything it cannot find, so
+      # making it a copy of index.html hands the route back to the app.
+      - name: Add SPA fallback
+        run: cp dist/index.html dist/404.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

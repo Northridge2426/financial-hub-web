@@ -1,0 +1,22 @@
+{
+  "name": "financial-hub-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Web console for the Financial Hub. Reads the same Supabase database as hub-live.html, but signs in as a real user and goes through RLS rather than the service role.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.8"
+  }
+}
