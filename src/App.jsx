@@ -4,6 +4,7 @@ import SignIn from './SignIn.jsx'
 
 import QuickReview from './QuickReview.jsx'
 import AllOutstanding from './AllOutstanding.jsx'
+import ReviewQueue from './ReviewQueue.jsx'
 
 import Overview from './Overview.jsx'
 import PaymentsDue from './PaymentsDue.jsx'
@@ -52,8 +53,17 @@ import Statements from './Statements.jsx'
  */
 const MENUS = [
   { key: 'rev', label: 'Review', pages: [
-    { key: 'quick',  label: '0 · Quick review',                Component: QuickReview },
-    { key: 'allout', label: '★ All outstanding — everything uncoded', Component: AllOutstanding },
+    { key: 'quick',    label: '0 · Quick review',                  Component: QuickReview },
+    { key: 'invoices', label: '1 · Allocate invoices',             Component: () => <ReviewQueue kind="invoices" /> },
+    { key: 'docs',     label: '2 · Assign receipts to invoices',   Component: () => <ReviewQueue kind="docs" /> },
+    { key: 'hold',     label: '3 · Transfers and payments',        Component: () => <ReviewQueue kind="hold" /> },
+    { key: 'plain',    label: '4 · Allocate expenses',             Component: () => <ReviewQueue kind="plain" /> },
+    { key: 'apwait',   label: '5 · Waiting on documents',          Component: () => <ReviewQueue kind="apwait" /> },
+    { key: 'docpair',  label: '6 · Document matching',             Component: () => <ReviewQueue kind="docpair" /> },
+    { key: 'reopened', label: '7 · Documents arrived after review', Component: () => <ReviewQueue kind="reopened" /> },
+    { key: 'stmtrev',  label: '8 · Statement only — review',       Component: () => <ReviewQueue kind="stmtrev" /> },
+    { key: 'reviewed', label: '9 · Reviewed — reopen one',         Component: () => <ReviewQueue kind="reviewed" /> },
+    { key: 'allout',   label: '★ All outstanding — everything uncoded', Component: AllOutstanding },
   ]},
   { key: 'ov', label: 'Financial overview', pages: [
     { key: 'overview',  label: 'Overview',                   Component: Overview },
