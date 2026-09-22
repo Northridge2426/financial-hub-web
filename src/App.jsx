@@ -3,6 +3,8 @@ import { supabase, rpc } from './supabase.js'
 import SignIn from './SignIn.jsx'
 import Overview from './Overview.jsx'
 import PaymentsDue from './PaymentsDue.jsx'
+import PaymentPriority from './PaymentPriority.jsx'
+import Payables from './Payables.jsx'
 
 /** Pages, in the order the console lists them. Add one per build.
  *  Components, not elements — so a page mounts fresh when you switch to it
@@ -10,6 +12,8 @@ import PaymentsDue from './PaymentsDue.jsx'
 const PAGES = [
   { key: 'overview', label: 'Overview', Component: Overview },
   { key: 'paydue', label: 'Payments due', Component: PaymentsDue },
+  { key: 'payprio', label: 'Priority', Component: PaymentPriority },
+  { key: 'payables', label: 'Payables', Component: Payables },
 ]
 
 export default function App() {
@@ -45,7 +49,9 @@ export default function App() {
         <h1>Financial Hub</h1>
         {counts != null && <span className="pill">{counts} outstanding</span>}
         <span className="spacer" />
-        <span className="who">{session.user.email}</span>
+        <span className="who" title={`Built ${__BUILT_AT__} UTC`}>
+          {session.user.email} · <span className="build">{__BUILD__}</span>
+        </span>
         <button onClick={() => supabase.auth.signOut()}>Sign out</button>
       </div>
 
