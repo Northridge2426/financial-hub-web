@@ -23,6 +23,10 @@ import Recurring from './Recurring.jsx'
 import StatementsDue from './StatementsDue.jsx'
 import BankVerification from './BankVerification.jsx'
 import VsSage from './VsSage.jsx'
+import Provisionals from './Provisionals.jsx'
+import JournalEntry from './JournalEntry.jsx'
+import LedgerRec from './LedgerRec.jsx'
+import BankRecon from './BankRecon.jsx'
 
 /** Pages, in the order the console lists them. Add one per build.
  *  Components, not elements — so a page mounts fresh when you switch to it
@@ -50,6 +54,10 @@ const PAGES = [
   { key: 'statements', label: 'Statements due', Component: StatementsDue },
   { key: 'bankrec', label: 'Bank check', Component: BankVerification },
   { key: 'variance', label: 'Vs Sage', Component: VsSage },
+  { key: 'prov', label: 'Provisionals', Component: Provisionals },
+  { key: 'je', label: 'Journal entry', Component: JournalEntry },
+  { key: 'ledgerrec', label: 'Ledger rec', Component: LedgerRec },
+  { key: 'bankrecon', label: 'Bank rec', Component: BankRecon },
 ]
 
 export default function App() {

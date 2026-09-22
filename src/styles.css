@@ -163,6 +163,12 @@ td.drill:hover { background: #eef2ff; }
 .card:has(.grid-table) { overflow-x: auto; }
 td.gap { color: #cbd5e1; }
 
+/* Two panes side by side for matching work; stacks on a narrow screen. */
+.twocol { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; align-items: start; }
+@media (max-width: 900px) { .twocol { grid-template-columns: 1fr; } }
+
+tr.rowsel td { background: #eef2ff; }
+
 /* ---------- sign in ---------- */
 .signin { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .signin form { width: 100%; max-width: 330px; }
