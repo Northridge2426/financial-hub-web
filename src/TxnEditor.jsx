@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
+import ReceiptLines from './ReceiptLines.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
@@ -220,6 +221,9 @@ export default function TxnEditor({ txn, onDone }) {
           </table>
         </details>
       )}
+
+      {/* ---- the document, line by line ---- */}
+      <ReceiptLines txnId={txn.id} />
 
       {/* ---- notes: what the morning task reads ---- */}
       <div className="note" style={{ marginBottom: 8 }}>
