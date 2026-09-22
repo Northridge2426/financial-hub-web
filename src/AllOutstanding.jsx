@@ -23,6 +23,10 @@ export default function AllOutstanding() {
   useEffect(() => {
     supabase.from('v_all_outstanding')
       .select('id,ref,txn_date,account,entity,amount,direction,descr,merchant,status,support_status,provisional,is_transfer,paired,has_statement,docs,docs_with_file,vendor_group,quick_rule,pair_ref,why,open_notes,last_note,last_reply')
+      // queue_counts() counts this as `where not paired` — a row whose other
+      // half is already matched is not outstanding. Without this the page said
+      // 394 against a badge of 215.
+      .eq('paired', false)
       .order('txn_date', { ascending: false })
       .then(({ data, error }) => error ? setErr(error.message) : setRows(data || []))
   }, [])

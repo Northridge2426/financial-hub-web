@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
+import DocLink from './DocLink.jsx'
 
 const num = v => Number(v) || 0
 
@@ -49,7 +50,15 @@ export default function ReceiptLines({ txnId }) {
       .select('receipt_id,doc_vendor,doc_date,doc_amount,doc_type,doc_reference')
       .eq('transaction_id', txnId)
     if (error) { setErr(error.message); return }
-    setReceipts(data || [])
+
+    // storage_path is on receipts, not on the stub view.
+    let paths = {}
+    if ((data || []).length) {
+      const { data: rs } = await supabase.from('receipts')
+        .select('id,storage_path').in('id', data.map(r => r.receipt_id))
+      paths = Object.fromEntries((rs || []).map(r => [r.id, r.storage_path]))
+    }
+    setReceipts((data || []).map(r => ({ ...r, storage_path: paths[r.receipt_id] || null })))
     for (const r of data || []) loadLines(r.receipt_id)
   }, [txnId, loadLines])
 
@@ -137,6 +146,12 @@ export default function ReceiptLines({ txnId }) {
                 ? <span className="pill hold">{uncoded} line{uncoded === 1 ? '' : 's'} uncoded</span>
                 : <span className="pill soft">all coded</span>)}
             </div>
+
+            {r.storage_path && (
+              <div style={{ marginTop: 4 }}>
+                <DocLink path={r.storage_path} label="receipt" />
+              </div>
+            )}
 
             {!rows && <div className="loading">Reading the lines…</div>}
 
