@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
-import DocLink from './DocLink.jsx'
 
 const num = v => Number(v) || 0
 
@@ -146,12 +145,6 @@ export default function ReceiptLines({ txnId }) {
                 ? <span className="pill hold">{uncoded} line{uncoded === 1 ? '' : 's'} uncoded</span>
                 : <span className="pill soft">all coded</span>)}
             </div>
-
-            {r.storage_path && (
-              <div style={{ marginTop: 4 }}>
-                <DocLink path={r.storage_path} label="open receipt" />
-              </div>
-            )}
 
             {!rows && <div className="loading">Reading the lines…</div>}
 
