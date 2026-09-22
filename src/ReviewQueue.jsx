@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
+import TxnEditor from './TxnEditor.jsx'
 
 const num = v => Number(v) || 0
 
@@ -197,7 +198,9 @@ export default function ReviewQueue({ kind: fixedKind }) {
                 </tr>,
                 sel === r.id && (
                   <tr key={r.id + '-d'} className="expand">
-                    <td colSpan={8}><TxnDetail txn={r} /></td>
+                    <td colSpan={8}>
+                      <TxnEditor txn={r} onDone={load} />
+                    </td>
                   </tr>
                 ),
               ])}
@@ -211,93 +214,5 @@ export default function ReviewQueue({ kind: fixedKind }) {
         </div>
       )}
     </div>
-  )
-}
-
-/** What is known about one transaction: the entry posted against it, what the
- *  ledger suggests, and the hold reason if it is parked. Read only. */
-function TxnDetail({ txn }) {
-  const [data, setData] = useState(null)
-  const [err, setErr] = useState('')
-
-  useEffect(() => {
-    (async () => {
-      setData(null); setErr('')
-      try {
-        const [journal, suggestion] = await Promise.all([
-          rpc('journal_for', { p_txn: txn.id }).catch(() => []),
-          rpc('suggest_journal', { p_txn: txn.id }).catch(() => []),
-        ])
-        setData({ journal, suggestion })
-      } catch (e) { setErr(e.message) }
-    })()
-  }, [txn.id])
-
-  if (err) return <div className="err">{err}</div>
-  if (!data) return <div className="loading">Reading…</div>
-
-  const { journal, suggestion } = data
-
-  return (
-    <>
-      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-        {txn.ref} · {txn.txn_date} · {txn.account} · {txn.description_raw}
-        {num(txn.gst_amount) > 0 && <> · GST ${money(txn.gst_amount)}</>}
-      </div>
-
-      {txn.journal_hold && txn.journal_hold_reason && (
-        <div className="note warn" style={{ marginBottom: 8 }}>{txn.journal_hold_reason}</div>
-      )}
-
-      {journal.length > 0 ? (
-        <>
-          <b style={{ fontSize: 12.5 }}>Posted</b>
-          <table style={{ marginTop: 3, marginBottom: 8 }}>
-            <tbody>
-              {journal.map((l, i) => (
-                <tr key={i}>
-                  <td style={{ width: 60 }}><span className="pill">{l.business}</span></td>
-                  <td style={{ width: 90 }} className="muted">{l.gl_number}</td>
-                  <td>
-                    {l.gl_name}
-                    {l.account_role && <span className="muted"> · {l.account_role}</span>}
-                    {l.note && <div className="muted" style={{ fontSize: 11 }}>{l.note}</div>}
-                  </td>
-                  <td className="money" style={{ width: 110 }}>{num(l.debit) ? money(l.debit) : ''}</td>
-                  <td className="money" style={{ width: 110 }}>{num(l.credit) ? money(l.credit) : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      ) : (
-        <div className="muted" style={{ marginBottom: 8 }}>Nothing posted against this yet.</div>
-      )}
-
-      {suggestion.length > 0 && (
-        <>
-          <b style={{ fontSize: 12.5 }}>What the ledger has done before</b>
-          <table style={{ marginTop: 3 }}>
-            <tbody>
-              {suggestion.map((s, i) => (
-                <tr key={i}>
-                  <td style={{ width: 60 }}><span className="pill">{s.business}</span></td>
-                  <td style={{ width: 90 }} className="muted">{s.account}</td>
-                  <td>
-                    {s.account_name}
-                    {s.basis && <div className="muted" style={{ fontSize: 11 }}>{s.basis}</div>}
-                  </td>
-                  <td className="money" style={{ width: 110 }}>{num(s.debit) ? money(s.debit) : ''}</td>
-                  <td className="money" style={{ width: 110 }}>{num(s.credit) ? money(s.credit) : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="hint" style={{ margin: '6px 0 0' }}>
-            Advisory only — nothing here is applied automatically.
-          </p>
-        </>
-      )}
-    </>
   )
 }
