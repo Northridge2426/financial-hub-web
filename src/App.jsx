@@ -14,6 +14,11 @@ import Revenue from './Revenue.jsx'
 import GeneralJournal from './GeneralJournal.jsx'
 import Vendors from './Vendors.jsx'
 import Statements from './Statements.jsx'
+import Actuals from './Actuals.jsx'
+import CashFlow from './CashFlow.jsx'
+import Gst from './Gst.jsx'
+import Projects from './Projects.jsx'
+import Reminders from './Reminders.jsx'
 
 /** Pages, in the order the console lists them. Add one per build.
  *  Components, not elements — so a page mounts fresh when you switch to it
@@ -32,6 +37,11 @@ const PAGES = [
   { key: 'vendors', label: 'Vendors', Component: Vendors },
   { key: 'gj', label: 'General journal', Component: GeneralJournal },
   { key: 'stmtdir', label: 'Statements', Component: Statements },
+  { key: 'reports', label: 'Actuals', Component: Actuals },
+  { key: 'cashflow', label: 'Cash flow', Component: CashFlow },
+  { key: 'gst', label: 'GST', Component: Gst },
+  { key: 'projects', label: 'Projects', Component: Projects },
+  { key: 'reminders', label: 'Reminders', Component: Reminders },
 ]
 
 export default function App() {

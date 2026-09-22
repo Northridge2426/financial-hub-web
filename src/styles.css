@@ -151,6 +151,13 @@ tr.secrow td {
   letter-spacing: .04em; color: var(--muted); padding: 5px 8px;
 }
 
+.tickgrid { display: grid; gap: 4px 14px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.tick { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.tick input { width: auto; }
+
+td.drill { cursor: pointer; }
+td.drill:hover { background: #eef2ff; }
+
 /* ---------- sign in ---------- */
 .signin { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .signin form { width: 100%; max-width: 330px; }

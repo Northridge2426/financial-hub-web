@@ -3,7 +3,8 @@ import { supabase } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 
-const LIMIT = 600
+const PAGE = 300
+const COLS = 'business,entry_no,entry_date,source,reference,sage_entry,narrative,total,lines,detail,ledger_entry_id'
 
 /** "t1471", "1471", "T001471" all mean the same transaction. */
 const toRef = s => {
@@ -17,48 +18,86 @@ export default function GeneralJournal() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [refs, setRefs] = useState('')
+
   const [rows, setRows] = useState(null)
+  const [total, setTotal] = useState(0)
+  const [breakdown, setBreakdown] = useState(null)
+  const [page, setPage] = useState(0)
+  const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const entities = useEntities()
+
+  const wanted = refs.split(/[\s,]+/).map(toRef).filter(Boolean)
+  const searching = wanted.length > 0
+  const filterKey = JSON.stringify([biz, source, from, to, wanted])
+
+  useEffect(() => { setPage(0) }, [filterKey])
 
   useEffect(() => {
     const handle = setTimeout(run, 250)   // debounce the reference box
     return () => clearTimeout(handle)
-    async function run() {
-      setRows(null); setErr('')
-      try {
-        const wanted = refs.split(/[\s,]+/).map(toRef).filter(Boolean)
 
-        let txnIds = null
-        if (wanted.length) {
-          const { data, error } = await supabase
-            .from('transactions').select('id').in('ref', wanted)
-          if (error) throw new Error(error.message)
-          txnIds = (data || []).map(t => t.id)
-          if (!txnIds.length) { setRows([]); return }
-        }
-
-        let qy = supabase.from('v_general_journal_entries')
-          .select('business,entry_no,entry_date,source,reference,sage_entry,narrative,total,lines,detail,ledger_entry_id')
-        if (biz) qy = qy.eq('business', biz)
-        if (source) qy = qy.eq('source', source)
-        if (txnIds) {
-          // A reference search must not be silently narrowed by the date range —
-          // you asked about that transaction, not about that window.
-          qy = qy.in('transaction_id', txnIds)
-        } else {
-          if (from) qy = qy.gte('entry_date', from)
-          if (to) qy = qy.lte('entry_date', to)
-        }
-        const { data, error } = await qy
-          .order('business').order('entry_date').order('entry_no').limit(LIMIT)
-        if (error) throw new Error(error.message)
-        setRows(data || [])
-      } catch (e) { setErr(e.message) }
+    /** Resolve typed references to transaction ids. Null means "no filter". */
+    async function txnIds() {
+      if (!searching) return null
+      const { data, error } = await supabase.from('transactions').select('id').in('ref', wanted)
+      if (error) throw new Error(error.message)
+      return (data || []).map(t => t.id)
     }
-  }, [biz, source, from, to, refs])
 
-  const searching = refs.split(/[\s,]+/).map(toRef).filter(Boolean).length > 0
+    function applyFilters(qy, ids) {
+      if (biz) qy = qy.eq('business', biz)
+      if (source) qy = qy.eq('source', source)
+      if (ids) {
+        // A reference search must not be silently narrowed by the date range —
+        // you asked about that transaction, not about that window.
+        qy = qy.in('transaction_id', ids)
+      } else {
+        if (from) qy = qy.gte('entry_date', from)
+        if (to) qy = qy.lte('entry_date', to)
+      }
+      return qy
+    }
+
+    async function run() {
+      if (page === 0) { setRows(null); setBreakdown(null) }
+      setErr(''); setBusy(true)
+      try {
+        const ids = await txnIds()
+        if (ids && !ids.length) {
+          setRows([]); setTotal(0); setBreakdown({}); setBusy(false); return
+        }
+
+        const { data, error, count } = await applyFilters(
+          supabase.from('v_general_journal_entries').select(COLS, { count: 'exact' }), ids)
+          .order('business').order('entry_date').order('entry_no')
+          .range(page * PAGE, page * PAGE + PAGE - 1)
+        if (error) throw new Error(error.message)
+
+        setTotal(count ?? 0)
+        setRows(prev => page === 0 ? (data || []) : [...(prev || []), ...(data || [])])
+
+        // The source split and the adjustment total describe the WHOLE match,
+        // not the page on screen — otherwise "50 adjustments" would creep
+        // upward as you load more, which is worse than no number at all.
+        if (page === 0) {
+          const { data: all, error: e2 } = await applyFilters(
+            supabase.from('v_general_journal_entries').select('source,total'), ids)
+          if (e2) throw new Error(e2.message)
+          const b = { adjTotal: 0 }
+          for (const r of all || []) {
+            b[r.source] = (b[r.source] || 0) + 1
+            if (r.source === 'adjustment') b.adjTotal += Number(r.total || 0)
+          }
+          setBreakdown(b)
+        }
+      } catch (e) { setErr(e.message) }
+      setBusy(false)
+    }
+  }, [filterKey, page])   // eslint-disable-line
+
+  const loaded = rows ? rows.length : 0
+  const hasMore = loaded < total
 
   return (
     <div className="page">
@@ -91,7 +130,7 @@ export default function GeneralJournal() {
       {searching && (
         <p className="hint">
           Searching by reference, so the dates are ignored — an entry you asked for by number
-          shouldn't vanish because it falls outside a window you set earlier.
+          shouldn't vanish because of a window you set earlier.
         </p>
       )}
 
@@ -101,77 +140,80 @@ export default function GeneralJournal() {
         <div className="card"><div className="muted">Nothing matches.</div></div>
       )}
 
-      {rows && rows.length > 0 && (() => {
-        const count = k => rows.filter(r => r.source === k).length
-        const adj = count('adjustment')
-        const adjTotal = rows.filter(r => r.source === 'adjustment')
-                             .reduce((a, r) => a + Number(r.total || 0), 0)
-        return (
-          <>
-            <div className="grid" style={{ marginBottom: 14 }}>
-              <div className="stat"><div className="n">{rows.length}</div><div className="l">entries</div></div>
-              <div className="stat"><div className="n">{count('from Sage')}</div><div className="l">from Sage</div></div>
-              <div className="stat"><div className="n">{count('new here')}</div><div className="l">new since import</div></div>
-              <div className="stat">
-                <div className={'n ' + (adj ? 'warn' : '')}>{adj}</div>
-                <div className="l">changed a Sage import</div>
+      {rows && rows.length > 0 && (
+        <>
+          <div className="grid" style={{ marginBottom: 14 }}>
+            <div className="stat"><div className="n">{total.toLocaleString('en-CA')}</div><div className="l">entries</div></div>
+            <div className="stat"><div className="n">{breakdown?.['from Sage'] ?? '…'}</div><div className="l">from Sage</div></div>
+            <div className="stat"><div className="n">{breakdown?.['new here'] ?? '…'}</div><div className="l">new since import</div></div>
+            <div className="stat">
+              <div className={'n ' + (breakdown?.adjustment ? 'warn' : '')}>
+                {breakdown?.adjustment ?? '…'}
               </div>
+              <div className="l">changed a Sage import</div>
             </div>
+          </div>
 
-            {adj > 0 && (
-              <div className="note warn">
-                These {adj} adjustments total ${money(adjTotal)} and exist only here. If the Sage
-                journal is reloaded they would be overwritten, so each one records what would have
-                to be entered in Sage first — see the reason on each row.
-              </div>
-            )}
+          {breakdown?.adjustment > 0 && (
+            <div className="note warn">
+              These {breakdown.adjustment} adjustments total ${money(breakdown.adjTotal)} and exist
+              only here. If the Sage journal is reloaded they would be overwritten, so each one
+              records what would have to be entered in Sage first — see the reason on each row.
+            </div>
+          )}
 
-            <div className="card">
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 62 }}>Entity</th>
-                    <th style={{ width: 52 }}>No.</th>
-                    <th style={{ width: 96 }}>Date</th>
-                    <th style={{ width: 90 }}>Ref</th>
-                    <th>Entry</th>
-                    <th className="num" style={{ width: 100 }}>Total</th>
-                    <th style={{ width: 118 }}>Source</th>
+          <div className="card">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 62 }}>Entity</th>
+                  <th style={{ width: 52 }}>No.</th>
+                  <th style={{ width: 96 }}>Date</th>
+                  <th style={{ width: 90 }}>Ref</th>
+                  <th>Entry</th>
+                  <th className="num" style={{ width: 100 }}>Total</th>
+                  <th style={{ width: 118 }}>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.ledger_entry_id || `${r.business}-${r.entry_no}-${i}`}>
+                    <td><span className="pill">{r.business}</span></td>
+                    <td className="muted">{r.entry_no}</td>
+                    <td>{r.entry_date}</td>
+                    <td className="muted">
+                      {r.reference}
+                      {r.sage_entry && <div className="muted">{r.sage_entry}</div>}
+                    </td>
+                    <td>
+                      <div>{String(r.narrative || '').slice(0, 70)}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>{r.detail}</div>
+                    </td>
+                    <td className="money">${money(r.total)}</td>
+                    <td>
+                      <span className={'pill ' + (r.source === 'adjustment' ? 'hold'
+                                                : r.source === 'new here' ? '' : 'soft')}>
+                        {r.source}
+                      </span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.map(r => (
-                    <tr key={r.ledger_entry_id || `${r.business}-${r.entry_no}`}>
-                      <td><span className="pill">{r.business}</span></td>
-                      <td className="muted">{r.entry_no}</td>
-                      <td>{r.entry_date}</td>
-                      <td className="muted">
-                        {r.reference}
-                        {r.sage_entry && <div className="muted">{r.sage_entry}</div>}
-                      </td>
-                      <td>
-                        <div>{String(r.narrative || '').slice(0, 70)}</div>
-                        <div className="muted" style={{ fontSize: 11 }}>{r.detail}</div>
-                      </td>
-                      <td className="money">${money(r.total)}</td>
-                      <td>
-                        <span className={'pill ' + (r.source === 'adjustment' ? 'hold'
-                                                  : r.source === 'new here' ? '' : 'soft')}>
-                          {r.source}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-            {rows.length === LIMIT && (
-              <p className="hint">Capped at {LIMIT} — narrow the dates.</p>
+          <div className="bar" style={{ justifyContent: 'space-between' }}>
+            <span className="muted" style={{ fontSize: 12 }}>
+              Showing {loaded.toLocaleString('en-CA')} of {total.toLocaleString('en-CA')}
+            </span>
+            {hasMore && (
+              <button className="primary" disabled={busy} onClick={() => setPage(p => p + 1)}>
+                {busy ? 'Loading…' : `Load ${Math.min(PAGE, total - loaded)} more`}
+              </button>
             )}
-          </>
-        )
-      })()}
+          </div>
+        </>
+      )}
     </div>
   )
 }
