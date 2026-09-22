@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import SignIn from './SignIn.jsx'
 import Overview from './Overview.jsx'
+import PaymentsDue from './PaymentsDue.jsx'
 
-/** Pages, in the order the console lists them. Add one per build. */
+/** Pages, in the order the console lists them. Add one per build.
+ *  Components, not elements — so a page mounts fresh when you switch to it
+ *  and refetches, rather than showing figures read some time ago. */
 const PAGES = [
-  { key: 'overview', label: 'Overview', el: <Overview /> },
+  { key: 'overview', label: 'Overview', Component: Overview },
+  { key: 'paydue', label: 'Payments due', Component: PaymentsDue },
 ]
 
 export default function App() {
@@ -54,7 +58,7 @@ export default function App() {
         ))}
       </nav>
 
-      {current.el}
+      <current.Component />
     </div>
   )
 }

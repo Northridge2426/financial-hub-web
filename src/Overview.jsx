@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { rpc } from './supabase.js'
-
-const money = n =>
-  Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+import { money } from './format.js'
 
 export default function Overview() {
   const [rows, setRows] = useState(null)
