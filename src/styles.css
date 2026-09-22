@@ -143,6 +143,14 @@ tr.drill:hover td { background: #f1f5f9; }
 tr.expand > td { background: var(--bg); padding: 8px 10px; }
 tr.expand table { font-size: 12px; }
 
+h2.clickable { cursor: pointer; user-select: none; }
+h2.clickable:hover { color: var(--accent); }
+
+tr.secrow td {
+  background: var(--bg); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted); padding: 5px 8px;
+}
+
 /* ---------- sign in ---------- */
 .signin { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .signin form { width: 100%; max-width: 330px; }

@@ -10,6 +10,10 @@ import BalanceSheet from './BalanceSheet.jsx'
 import IncomeStatement from './IncomeStatement.jsx'
 import Subscriptions from './Subscriptions.jsx'
 import Interest from './Interest.jsx'
+import Revenue from './Revenue.jsx'
+import GeneralJournal from './GeneralJournal.jsx'
+import Vendors from './Vendors.jsx'
+import Statements from './Statements.jsx'
 
 /** Pages, in the order the console lists them. Add one per build.
  *  Components, not elements — so a page mounts fresh when you switch to it
@@ -24,6 +28,10 @@ const PAGES = [
   { key: 'istmt', label: 'Income statement', Component: IncomeStatement },
   { key: 'subs', label: 'Subscriptions', Component: Subscriptions },
   { key: 'interest', label: 'Interest', Component: Interest },
+  { key: 'revenue', label: 'Revenue', Component: Revenue },
+  { key: 'vendors', label: 'Vendors', Component: Vendors },
+  { key: 'gj', label: 'General journal', Component: GeneralJournal },
+  { key: 'stmtdir', label: 'Statements', Component: Statements },
 ]
 
 export default function App() {
