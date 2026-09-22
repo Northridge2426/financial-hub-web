@@ -15,7 +15,11 @@ export default function Interest() {
 
   useEffect(() => {
     setRows(null); setErr('')
-    rpc('interest_by_balance', { p_from: from, p_to: to, p_owner_mode: mode })
+    // NOT interest_by_balance directly: it builds a temp table and runs
+    // `delete from _w;` with no WHERE, which Supabase's safeupdate guard blocks
+    // for the authenticated role. The wrapper is SECURITY DEFINER (exempt) and
+    // checks is_app_user() itself, so RLS is not weakened.
+    rpc('web_interest_by_balance', { p_from: from, p_to: to, p_owner_mode: mode })
       .then(setRows).catch(e => setErr(e.message))
   }, [from, to, mode])
 

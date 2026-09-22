@@ -48,6 +48,18 @@ a { color: var(--accent); }
   text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap;
 }
 .tabs a.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs .spacer { flex: 1; }
+
+/* Two levels: groups on top, the pages within the chosen group beneath. 27
+   pages in one row was unreadable and unusable on a phone. */
+.tabs.groups { font-weight: 600; }
+.tabs.groups a { font-size: 13.5px; padding: 10px 14px; }
+.tabs.sub { background: var(--bg); border-bottom: 1px solid var(--line); }
+.tabs.sub a { padding: 7px 11px; font-size: 12.5px; border-bottom-width: 2px; }
+.tabs .build {
+  align-self: center; padding-right: 12px; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+}
 
 .page { padding: 16px; max-width: 1180px; width: 100%; margin: 0 auto; }
 

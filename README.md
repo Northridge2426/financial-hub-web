@@ -85,17 +85,53 @@ with nothing.
 ```
 webapp/
   index.html         entry
-  vite.config.js
+  vite.config.js     base path + build stamp
   .env               URL + publishable key  (git-ignored)
   .env.example       the shape, for a fresh clone
   src/
     main.jsx         mounts React
-    App.jsx          session, tab bar, page switch
+    App.jsx          session, grouped navigation, page switch
     SignIn.jsx       email + password
-    Overview.jsx     first real page — financial_overview()
     supabase.js      client + rpc() helper
+    format.js        money, today, shortDate
+    useEntities.js   the active businesses, for every entity filter
+    DrillLines.jsx   report_drilldown — the lines behind a figure
+    StatementTable.jsx  sectioned statement + drill (balance sheet, income statement)
     styles.css
+    …27 page components
 ```
 
-Pages get added to the `PAGES` array in `App.jsx`, one per build, in order of how
-much they are used — the daily queues first, the year-end reports last.
+**All 27 pages are built.** They are grouped in `App.jsx` — Daily, Payables, The
+books, Statements, Reports — because 27 tabs in one row is unreadable and
+unusable on a phone. Pick a group, then a page within it; the choice is
+remembered in `localStorage`.
+
+Pages are stored as *components*, not elements, so switching to one mounts it
+fresh and it refetches rather than showing figures read an hour ago.
+
+## Things that bite when porting a pane
+
+- **Calls are by named argument.** The console writes `payments_due(30, null)`;
+  here it is `rpc('payments_due', { p_days: 30, p_business: null })`. Get the
+  names from `pg_get_function_arguments`, don't guess.
+- **Overloads resolve by argument name.** `vendor_activity`, `project_report`
+  and `account_ledger` are all overloaded. Supplying one signature's full named
+  set disambiguates — except `account_ledger`, where both versions call the
+  first parameter `p_account`. That one needed a wrapper.
+- **Columns that read like booleans are often `bigint` counts.** In
+  `v_chart_of_accounts`: `posted_here`, `in_sage_journal`, `used_by_allocations`,
+  `used_by_roles`, `is_a_bank_account`. In JSX `0 && <span/>` renders a literal
+  **0** — it compiles clean and looks broken. Coerce with `> 0`.
+- **Vite does not fail on missing env vars.** A build with absent secrets goes
+  green and bakes in blanks; the app then dies in the browser. Green build ≠
+  working site.
+- **GitHub Pages caches `index.html` for ten minutes.** Asset names are
+  fingerprinted and safe; the HTML pointing at them is not. The commit SHA in
+  the nav bar tells you which build you are actually looking at.
+
+## Deploying
+
+Push to `main`. The workflow builds and publishes to
+`https://northridge2426.github.io/financial-hub-web/`, reading the two secrets
+from the repository's Actions secrets. Pushing is done from a local clone with
+Git Credential Manager — no token is stored anywhere.
