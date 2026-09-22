@@ -35,18 +35,38 @@ export default function TxnEditor({ txn, onDone }) {
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
+  const [notes, setNotes] = useState([])
+  const [noteText, setNoteText] = useState('')
   const entities = useEntities()
 
   const load = useCallback(async () => {
     setErr(''); setJournal(null)
     try {
-      const [j, s] = await Promise.all([
+      const [j, s, n] = await Promise.all([
         rpc('journal_for', { p_txn: txn.id }).catch(() => []),
         rpc('suggest_journal', { p_txn: txn.id }).catch(() => []),
+        supabase.from('transaction_notes')
+          .select('id,note,status,reply,created_at,answered_at')
+          .eq('transaction_id', txn.id).order('created_at', { ascending: false })
+          .then(({ data }) => data || []),
       ])
-      setJournal(j); setSuggestion(s)
+      setJournal(j); setSuggestion(s); setNotes(n)
     } catch (e) { setErr(e.message) }
   }, [txn.id])
+
+  /** Leaving a note is how the morning task gets told what to do. Without this
+   *  the web app would look complete while quietly starving that task — it
+   *  would report "No notes this morning" for ever and read as success. */
+  async function addNote() {
+    if (!noteText.trim()) return
+    setBusy('note'); setErr('')
+    try {
+      await rpc('add_transaction_note', { p_txn: txn.id, p_note: noteText.trim() })
+      setNoteText(''); setMsg('Note left — the morning task will pick it up.')
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -200,6 +220,45 @@ export default function TxnEditor({ txn, onDone }) {
           </table>
         </details>
       )}
+
+      {/* ---- notes: what the morning task reads ---- */}
+      <div className="note" style={{ marginBottom: 8 }}>
+        {notes.length > 0 && (
+          <table style={{ marginBottom: 6 }}>
+            <tbody>
+              {notes.map(n => (
+                <tr key={n.id}>
+                  <td style={{ width: 92 }} className="muted">
+                    {String(n.created_at || '').slice(0, 10)}
+                  </td>
+                  <td>
+                    {n.note}
+                    {n.reply && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                        ↳ {n.reply}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ width: 90 }}>
+                    <span className={'pill ' + (n.status === 'open' ? 'hold' : 'soft')}>
+                      {n.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div className="bar" style={{ margin: 0 }}>
+          <input placeholder="Leave a note — the morning task works these" value={noteText}
+                 onChange={e => setNoteText(e.target.value)}
+                 onKeyDown={e => { if (e.key === 'Enter') addNote() }}
+                 style={{ flex: 1, minWidth: 240 }} />
+          <button disabled={!noteText.trim() || busy === 'note'} onClick={addNote}>
+            {busy === 'note' ? 'Saving…' : 'Leave a note'}
+          </button>
+        </div>
+      </div>
 
       {/* ---- allocation profile ---- */}
       {!lines && (

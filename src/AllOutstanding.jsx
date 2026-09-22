@@ -22,7 +22,7 @@ export default function AllOutstanding() {
 
   useEffect(() => {
     supabase.from('v_all_outstanding')
-      .select('id,ref,txn_date,account,entity,amount,direction,descr,merchant,status,support_status,provisional,is_transfer,paired,has_statement,docs,docs_with_file,vendor_group,quick_rule,pair_ref,why')
+      .select('id,ref,txn_date,account,entity,amount,direction,descr,merchant,status,support_status,provisional,is_transfer,paired,has_statement,docs,docs_with_file,vendor_group,quick_rule,pair_ref,why,open_notes,last_note,last_reply')
       .order('txn_date', { ascending: false })
       .then(({ data, error }) => error ? setErr(error.message) : setRows(data || []))
   }, [])
@@ -48,7 +48,7 @@ export default function AllOutstanding() {
 
   const total = shown.reduce((a, r) => a + num(r.amount), 0)
   const withDoc = shown.filter(r => num(r.docs) > 0).length
-  const transfers = shown.filter(r => r.is_transfer).length
+  const openNotes = shown.filter(r => num(r.open_notes) > 0).length
 
   return (
     <div className="page">
@@ -79,7 +79,10 @@ export default function AllOutstanding() {
         <div className="stat"><div className="n">{shown.length}</div><div className="l">still uncoded</div></div>
         <div className="stat"><div className="n">${money(total)}</div><div className="l">total</div></div>
         <div className="stat"><div className="n">{withDoc}</div><div className="l">have a document</div></div>
-        <div className="stat"><div className="n">{transfers}</div><div className="l">look like transfers</div></div>
+        <div className="stat">
+          <div className={'n ' + (openNotes ? 'warn' : '')}>{openNotes}</div>
+          <div className="l">notes waiting on the morning task</div>
+        </div>
       </div>
 
       <div className="card">
@@ -122,6 +125,12 @@ export default function AllOutstanding() {
                 </td>
                 <td style={{ fontSize: 11.5 }}>
                   {r.why}
+                  {num(r.open_notes) > 0 && (
+                    <div className="due-soon" style={{ marginTop: 2 }}>
+                      <b>note:</b> {r.last_note}
+                      {r.last_reply && <div className="muted">↳ {r.last_reply}</div>}
+                    </div>
+                  )}
                   <div>
                     {r.provisional && <span className="pill hold">provisional</span>}
                     {r.is_transfer && <span className="pill hold">transfer</span>}
