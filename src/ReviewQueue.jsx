@@ -3,6 +3,7 @@ import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import TxnEditor from './TxnEditor.jsx'
+import DocLink from './DocLink.jsx'
 
 const num = v => Number(v) || 0
 
@@ -169,6 +170,7 @@ export default function ReviewQueue({ kind: fixedKind }) {
                       </span>
                     )}
                     {num(r.docs) > 0 && <span className="pill soft">{r.docs} doc</span>}
+                    {r.statement_path && <DocLink path={r.statement_path} label="stmt" />}
                     {num(r.doc_stubs) > 0 && (
                       <span className="pill hold"
                             title="Recorded from an email — vendor, date and amount only. No file was ever saved, so there is nothing to open.">

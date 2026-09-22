@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
+import DocLink from './DocLink.jsx'
 
 const num = v => Number(v) || 0
 
@@ -26,7 +27,7 @@ export default function Provisionals() {
     try {
       const [pv, bal] = await Promise.all([
         supabase.from('v_provisional')
-          .select('id,ref,txn_date,amount,direction,status,account,owner_business,doc_ref,vendor,lines,candidates,age_days')
+          .select('id,ref,txn_date,amount,direction,status,account,owner_business,doc_ref,vendor,lines,candidates,age_days,storage_path')
           .order('txn_date', { ascending: false }),
         supabase.from('v_balance_with_provisional')
           .select('account,kind,business,statement_to,statement_balance,movement_since,provisional_since,lines_since,provisionals,balance_on_bank_data,balance_including_provisional')
@@ -101,6 +102,7 @@ export default function Provisionals() {
                   <td>
                     {r.vendor}
                     {r.doc_ref && <span className="muted" style={{ marginLeft: 6 }}>{r.doc_ref}</span>}
+                    {r.storage_path && <DocLink path={r.storage_path} label="doc" />}
                   </td>
                   <td>
                     {r.account}

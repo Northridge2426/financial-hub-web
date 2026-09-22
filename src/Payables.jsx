@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase.js'
 import { money } from './format.js'
+import DocLink from './DocLink.jsx'
 
 /**
  * Outstanding payables — invoices booked to payables and not yet cleared.
@@ -23,7 +24,7 @@ export default function Payables() {
       try {
         const [ap, ctl] = await Promise.all([
           supabase.from('v_ap_outstanding')
-            .select('business,receipt_id,doc_vendor,doc_reference,doc_date,due_date,balance,days_overdue')
+            .select('business,receipt_id,doc_vendor,doc_reference,doc_date,due_date,balance,days_overdue,storage_path')
             .order('business').order('doc_date'),
           supabase.from('v_open_items_vs_control')
             .select('business,control_date,ap_per_sage,open_items_here,items,difference')
@@ -95,7 +96,10 @@ export default function Payables() {
               <tr key={r.receipt_id + r.doc_date}>
                 <td><span className="pill">{r.business}</span></td>
                 <td className="muted">{r.doc_no}</td>
-                <td>{r.doc_vendor || '—'}</td>
+                <td>
+                  {r.doc_vendor || '—'}
+                  {r.storage_path && <DocLink path={r.storage_path} label="invoice" />}
+                </td>
                 <td className="muted">{r.doc_reference || ''}</td>
                 <td>{r.doc_date || ''}</td>
                 <td>{r.due_date || ''}</td>

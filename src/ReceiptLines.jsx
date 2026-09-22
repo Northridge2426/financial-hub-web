@@ -149,7 +149,7 @@ export default function ReceiptLines({ txnId }) {
 
             {r.storage_path && (
               <div style={{ marginTop: 4 }}>
-                <DocLink path={r.storage_path} label="receipt" />
+                <DocLink path={r.storage_path} label="open receipt" />
               </div>
             )}
 

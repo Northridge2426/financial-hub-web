@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { rpc } from './supabase.js'
 import { money } from './format.js'
+import DocLink from './DocLink.jsx'
 
 const num = v => Number(v) || 0
 
@@ -271,8 +272,16 @@ export default function QuickReview() {
                           <div className="muted" style={{ fontSize: 10.5 }}>{r.cr_number}</div>
                         </td>
                         <td style={{ fontSize: 11 }}>
-                          {num(r.docs) > 0 && <span className="pill soft">doc</span>}
-                          {r.has_statement && <span className="pill">stmt</span>}
+                          {r.doc_path
+                            ? <DocLink path={r.doc_path} label="doc"
+                                       title="Copy the path to the receipt or invoice filed against this line." />
+                            : num(r.docs) > 0 &&
+                              <span className="pill soft" title="A document is filed, but it has no file on disk.">doc</span>}
+                          {r.stmt_path
+                            ? <DocLink path={r.stmt_path} label="stmt"
+                                       title="Copy the path to the statement covering this period." />
+                            : r.has_statement &&
+                              <span className="pill" title="Linked to a statement, but that statement has no file on disk.">stmt</span>}
                           {r.transfer_risk && (
                             <span className="pill hold"
                                   title="A matching amount moves the other way on another account within five days. Tick it deliberately if it really is income.">

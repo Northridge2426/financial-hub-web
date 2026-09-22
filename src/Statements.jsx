@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { rpc } from './supabase.js'
 import { money } from './format.js'
+import DocLink from './DocLink.jsx'
 import { useEntities } from './useEntities.js'
 
 const num = v => Number(v) || 0
@@ -107,6 +108,7 @@ export default function Statements() {
                         {r.file_name && (
                           <div className="muted" style={{ fontSize: 11 }}>{r.file_name}</div>
                         )}
+                        {r.file_path && <DocLink path={r.file_path} label="open" />}
                       </td>
                       <td className="muted" style={{ fontSize: 12 }}>{r.institution}</td>
                       <td style={{ fontSize: 12 }}>{r.period_start} → {r.period_end}</td>

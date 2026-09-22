@@ -205,3 +205,7 @@ tr.rowsel td { background: #eef2ff; }
 /* A document pointer, until OneDrive share links are stored. */
 .doclink { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px; }
 .doclink .muted { word-break: break-all; }
+
+/* Document pointer buttons sit inline with pills. */
+.doclink { display: inline-block; }
+.doclink button { padding: 1px 8px; font-size: 11px; border-radius: 999px; margin-left: 4px; }
