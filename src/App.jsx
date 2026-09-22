@@ -1,95 +1,106 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import SignIn from './SignIn.jsx'
+
+import QuickReview from './QuickReview.jsx'
+import AllOutstanding from './AllOutstanding.jsx'
 
 import Overview from './Overview.jsx'
 import PaymentsDue from './PaymentsDue.jsx'
 import PaymentPriority from './PaymentPriority.jsx'
+import Recurring from './Recurring.jsx'
 import Provisionals from './Provisionals.jsx'
-import Reminders from './Reminders.jsx'
 
 import Payables from './Payables.jsx'
 import Vendors from './Vendors.jsx'
-import Recurring from './Recurring.jsx'
-import Subscriptions from './Subscriptions.jsx'
 
 import Ledger from './Ledger.jsx'
+import LedgerRec from './LedgerRec.jsx'
 import GeneralJournal from './GeneralJournal.jsx'
 import JournalEntry from './JournalEntry.jsx'
-import LedgerRec from './LedgerRec.jsx'
 import Accounts from './Accounts.jsx'
 
-import StatementsDue from './StatementsDue.jsx'
-import Statements from './Statements.jsx'
-import BankVerification from './BankVerification.jsx'
-import BankRecon from './BankRecon.jsx'
-
+import Actuals from './Actuals.jsx'
 import BalanceSheet from './BalanceSheet.jsx'
 import IncomeStatement from './IncomeStatement.jsx'
 import CashFlow from './CashFlow.jsx'
-import Actuals from './Actuals.jsx'
+import Subscriptions from './Subscriptions.jsx'
+import Gst from './Gst.jsx'
 import Revenue from './Revenue.jsx'
 import Interest from './Interest.jsx'
-import Gst from './Gst.jsx'
 import Projects from './Projects.jsx'
+
+import Reminders from './Reminders.jsx'
 import VsSage from './VsSage.jsx'
 
+import BankVerification from './BankVerification.jsx'
+import BankRecon from './BankRecon.jsx'
+import StatementsDue from './StatementsDue.jsx'
+import Statements from './Statements.jsx'
+
 /**
- * 27 pages will not fit in one row of tabs, so they are grouped: pick a group,
- * then a page within it. Components rather than elements, so a page mounts
- * fresh when you switch to it and refetches instead of showing figures read
- * some time ago.
+ * The console's own menus, in the console's own order, with the console's own
+ * labels — taken from the tab bar in hub-live.html. Somebody who knows where a
+ * page lives there should not have to learn a second arrangement here.
+ *
+ * `pages: null` means a flat tab rather than a menu, which is how Reminders and
+ * Vs Sage behave in the console.
+ *
+ * The Review menu is partly built: Quick review and All outstanding are here.
+ * The nine numbered allocation queues (1 Allocate invoices … 9 Reopen one)
+ * share one pane with a detail editor in the console and are still to come.
  */
-const GROUPS = [
-  { key: 'daily', label: 'Daily', pages: [
-    { key: 'overview', label: 'Overview', Component: Overview },
-    { key: 'paydue', label: 'Payments due', Component: PaymentsDue },
-    { key: 'payprio', label: 'Priority', Component: PaymentPriority },
-    { key: 'prov', label: 'Provisionals', Component: Provisionals },
-    { key: 'reminders', label: 'Reminders', Component: Reminders },
+const MENUS = [
+  { key: 'rev', label: 'Review', pages: [
+    { key: 'quick',  label: '0 · Quick review',                Component: QuickReview },
+    { key: 'allout', label: '★ All outstanding — everything uncoded', Component: AllOutstanding },
   ]},
-  { key: 'payables', label: 'Payables', pages: [
-    { key: 'payables', label: 'Outstanding', Component: Payables },
-    { key: 'vendors', label: 'Vendors', Component: Vendors },
-    { key: 'recurring', label: 'Recurring', Component: Recurring },
-    { key: 'subs', label: 'Subscriptions', Component: Subscriptions },
+  { key: 'ov', label: 'Financial overview', pages: [
+    { key: 'overview',  label: 'Overview',                   Component: Overview },
+    { key: 'paydue',    label: 'Payments due — next 30 days', Component: PaymentsDue },
+    { key: 'payprio',   label: 'Payment prioritisation',     Component: PaymentPriority },
+    { key: 'recurring', label: 'Recurring payments',         Component: Recurring },
+    { key: 'prov',      label: 'Provisional entries',        Component: Provisionals },
   ]},
-  { key: 'books', label: 'The books', pages: [
-    { key: 'ledger', label: 'Ledger details', Component: Ledger },
-    { key: 'gj', label: 'General journal', Component: GeneralJournal },
-    { key: 'je', label: 'Journal entry', Component: JournalEntry },
-    { key: 'ledgerrec', label: 'Ledger rec', Component: LedgerRec },
-    { key: 'accounts', label: 'Accounts', Component: Accounts },
+  { key: 'ap', label: 'Payables', pages: [
+    { key: 'payables', label: 'Outstanding payables', Component: Payables },
+    { key: 'vendors',  label: 'Vendor reports',       Component: Vendors },
   ]},
-  { key: 'statements', label: 'Statements', pages: [
-    { key: 'statements', label: 'Due', Component: StatementsDue },
-    { key: 'stmtdir', label: 'Filed', Component: Statements },
-    { key: 'bankrec', label: 'Balance check', Component: BankVerification },
-    { key: 'bankrecon', label: 'Reconcile', Component: BankRecon },
+  { key: 'lg', label: 'Ledger', pages: [
+    { key: 'ledger',    label: 'Ledger details',        Component: Ledger },
+    { key: 'ledgerrec', label: 'Ledger reconciliation', Component: LedgerRec },
+    { key: 'gj',        label: 'General journal',       Component: GeneralJournal },
+    { key: 'je',        label: 'Journal entry',         Component: JournalEntry },
+    { key: 'accounts',  label: 'Accounts',              Component: Accounts },
   ]},
-  { key: 'reports', label: 'Reports', pages: [
-    { key: 'bsheet', label: 'Balance sheet', Component: BalanceSheet },
-    { key: 'istmt', label: 'Income statement', Component: IncomeStatement },
-    { key: 'cashflow', label: 'Cash flow', Component: CashFlow },
-    { key: 'reports', label: 'Actuals', Component: Actuals },
-    { key: 'revenue', label: 'Revenue', Component: Revenue },
-    { key: 'interest', label: 'Interest', Component: Interest },
-    { key: 'gst', label: 'GST', Component: Gst },
-    { key: 'projects', label: 'Projects', Component: Projects },
-    { key: 'variance', label: 'Vs Sage', Component: VsSage },
+  { key: 'rp', label: 'Reports', pages: [
+    { key: 'reports',  label: 'Actuals by account', Component: Actuals },
+    { key: 'bsheet',   label: 'Balance sheet',      Component: BalanceSheet },
+    { key: 'istmt',    label: 'Income statement',   Component: IncomeStatement },
+    { key: 'cashflow', label: 'Cash flow',          Component: CashFlow },
+    { key: 'subs',     label: 'Subscriptions',      Component: Subscriptions },
+    { key: 'gst',      label: 'GST remittance',     Component: Gst },
+    { key: 'revenue',  label: 'Revenue',            Component: Revenue },
+    { key: 'interest', label: 'Interest',           Component: Interest },
+    { key: 'projects', label: 'Projects',           Component: Projects },
+  ]},
+  { key: 'reminders', label: 'Reminders', pages: null, Component: Reminders },
+  { key: 'variance',  label: 'Vs Sage',   pages: null, Component: VsSage },
+  { key: 'bank', label: 'Bank', pages: [
+    { key: 'bankrec',   label: 'Bank balance verification', Component: BankVerification },
+    { key: 'bankrecon', label: 'Bank reconciliation',       Component: BankRecon },
+    { key: 'statements', label: 'Statements Due',           Component: StatementsDue },
+    { key: 'stmtdir',   label: 'Statements',                Component: Statements },
   ]},
 ]
 
-const findPage = key => {
-  for (const g of GROUPS) {
-    const p = g.pages.find(x => x.key === key)
-    if (p) return { group: g, page: p }
-  }
-  return { group: GROUPS[0], page: GROUPS[0].pages[0] }
-}
+const ALL = MENUS.flatMap(m => m.pages ? m.pages.map(p => ({ ...p, menu: m })) : [{
+  key: m.key, label: m.label, Component: m.Component, menu: m,
+}])
 
-/** Remember where you were. localStorage is per-browser and can be empty or
- *  throw in some contexts, so every touch is guarded. */
+const find = key => ALL.find(p => p.key === key) || ALL[0]
+
+/** Remember where you were. localStorage can be empty or throw, so guard it. */
 const remembered = () => {
   try { return localStorage.getItem('hub.page') || 'overview' } catch { return 'overview' }
 }
@@ -97,7 +108,9 @@ const remembered = () => {
 export default function App() {
   const [session, setSession] = useState(undefined)   // undefined = still checking
   const [pageKey, setPageKey] = useState(remembered)
+  const [openMenu, setOpenMenu] = useState(null)
   const [counts, setCounts] = useState(null)
+  const navRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -108,6 +121,19 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('hub.page', pageKey) } catch { /* not important */ }
   }, [pageKey])
+
+  // Close an open menu on a click anywhere else, or on Escape.
+  useEffect(() => {
+    if (!openMenu) return
+    const away = e => { if (navRef.current && !navRef.current.contains(e.target)) setOpenMenu(null) }
+    const esc = e => { if (e.key === 'Escape') setOpenMenu(null) }
+    document.addEventListener('mousedown', away)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('mousedown', away)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [openMenu])
 
   // A cheap end-to-end proof that the signed-in path reaches the database.
   useEffect(() => {
@@ -122,7 +148,9 @@ export default function App() {
   }
   if (!session) return <SignIn />
 
-  const { group, page } = findPage(pageKey)
+  const current = find(pageKey)
+
+  const pick = key => { setPageKey(key); setOpenMenu(null) }
 
   return (
     <div className="shell">
@@ -134,27 +162,47 @@ export default function App() {
         <button onClick={() => supabase.auth.signOut()}>Sign out</button>
       </div>
 
-      <nav className="tabs groups">
-        {GROUPS.map(g => (
-          <a key={g.key} href="#" className={g.key === group.key ? 'on' : ''}
-             onClick={e => { e.preventDefault(); setPageKey(g.pages[0].key) }}>
-            {g.label}
-          </a>
-        ))}
+      <nav className="tabs" ref={navRef}>
+        {MENUS.map(m => {
+          const active = current.menu.key === m.key
+          if (!m.pages) {
+            return (
+              <a key={m.key} href="#" className={active ? 'on' : ''}
+                 onClick={e => { e.preventDefault(); pick(m.key) }}>
+                {m.label}
+              </a>
+            )
+          }
+          return (
+            <span key={m.key} className="menuwrap">
+              <a href="#" className={active ? 'on' : ''}
+                 onClick={e => {
+                   e.preventDefault()
+                   setOpenMenu(openMenu === m.key ? null : m.key)
+                 }}>
+                {m.label} <span className="caret">▾</span>
+              </a>
+              {openMenu === m.key && (
+                <div className="menu">
+                  {m.pages.map(p => (
+                    <div key={p.key}
+                         className={'mi' + (p.key === current.key ? ' on' : '')}
+                         onClick={() => pick(p.key)}>
+                      {p.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </span>
+          )
+        })}
         <span className="spacer" />
         <span className="build" title={`Built ${__BUILT_AT__} UTC`}>{__BUILD__}</span>
       </nav>
 
-      <nav className="tabs sub">
-        {group.pages.map(p => (
-          <a key={p.key} href="#" className={p.key === page.key ? 'on' : ''}
-             onClick={e => { e.preventDefault(); setPageKey(p.key) }}>
-            {p.label}
-          </a>
-        ))}
-      </nav>
+      <div className="crumb">{current.label}</div>
 
-      <page.Component />
+      <current.Component />
     </div>
   )
 }

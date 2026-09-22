@@ -49,16 +49,29 @@ a { color: var(--accent); }
 }
 .tabs a.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 .tabs .spacer { flex: 1; }
-
-/* Two levels: groups on top, the pages within the chosen group beneath. 27
-   pages in one row was unreadable and unusable on a phone. */
-.tabs.groups { font-weight: 600; }
-.tabs.groups a { font-size: 13.5px; padding: 10px 14px; }
-.tabs.sub { background: var(--bg); border-bottom: 1px solid var(--line); }
-.tabs.sub a { padding: 7px 11px; font-size: 12.5px; border-bottom-width: 2px; }
 .tabs .build {
   align-self: center; padding-right: 12px; color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+}
+
+/* Dropdown menus, matching the console's own arrangement. The bar must not clip
+   them, so it cannot be the thing that scrolls. */
+.tabs { overflow: visible; flex-wrap: wrap; }
+.menuwrap { position: relative; display: inline-flex; }
+.caret { color: var(--muted); font-size: 10px; }
+.menu {
+  position: absolute; left: 0; top: 100%; z-index: 40; min-width: 240px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.10); padding: 4px 0;
+}
+.menu .mi { padding: 7px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.menu .mi:hover { background: var(--bg); }
+.menu .mi.on { color: var(--accent); font-weight: 600; }
+
+/* Which page you are on, since a dropdown label doesn't say. */
+.crumb {
+  padding: 7px 16px; font-size: 12.5px; font-weight: 600; color: var(--muted);
+  background: var(--bg); border-bottom: 1px solid var(--line);
 }
 
 .page { padding: 16px; max-width: 1180px; width: 100%; margin: 0 auto; }
