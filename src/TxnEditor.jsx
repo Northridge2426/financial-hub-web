@@ -9,57 +9,82 @@ import DocumentList from './DocumentList.jsx'
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
 
+const SOURCE_LABEL = {
+  override:  'the entry already saved against this transaction',
+  sage:      'the Sage entry it is reconciled to, exactly as booked',
+  suggested: 'what the ledger has done with this vendor before',
+  blank:     'the account it was paid from — the expense side is yours to fill',
+  funding:   'the account it was paid from — the expense side is yours to fill',
+}
+
 /**
  * Coding one transaction.
  *
- * The shape follows the console deliberately:
- *   1. pick an allocation profile → `preview_allocation` builds the whole entry
- *   2. the proposal is SHOWN, not applied — it crosses three ledgers and there
- *      is no reason to take that on trust
- *   3. Apply copies it into an editable draft
- *   4. `set_journal_override` saves the draft
+ * The draft is SEEDED, never blank. `web_txn_seed` mirrors the console's
+ * cascade: an existing override, else the Sage entry as booked, else
+ * suggest_journal(), else a blank expense line plus the funding side taken from
+ * the account the transaction sits on. Opening a card payment with two empty
+ * rows makes you retype what the system already knows.
  *
- * The expense account is never guessed. `suggest_expense_accounts` says what
- * each ledger has used for this merchant before and that is offered per
- * business — the charts do not share numbering, so mirroring one number across
- * entities was never safe.
+ * Saving has two outcomes, as the console does:
+ *   Save                  -> status 'in_review'; it stays in the queue
+ *   Save and mark reviewed -> bulk_mark_reviewed(), which refuses if the entry
+ *                             is missing or out of balance, and it leaves
  *
- * Balance is checked PER BUSINESS. An entry that only balances in total would
- * quietly move money between entities.
+ * An entry that debits 2100 gets a warning first: `set_journal_override` writes
+ * plain lines with no `settles_receipt_id`, and that stamp is the only thing
+ * marking an invoice paid. Saving an AP debit here posts the cash side and
+ * leaves the payable outstanding — it half works, which is worse than failing.
  */
 export default function TxnEditor({ txn, onDone }) {
-  const [journal, setJournal] = useState(null)
+  const [seedSource, setSeedSource] = useState(null)
   const [suggestion, setSuggestion] = useState([])
   const [profiles, setProfiles] = useState([])
   const [accounts, setAccounts] = useState([])
   const [profile, setProfile] = useState('')
   const [preview, setPreview] = useState(null)
-  const [lines, setLines] = useState(null)      // null = not editing yet
+  const [lines, setLines] = useState(null)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
   const [notes, setNotes] = useState([])
   const [noteText, setNoteText] = useState('')
+  const [apWarned, setApWarned] = useState(false)
   const entities = useEntities()
 
   const load = useCallback(async () => {
-    setErr(''); setJournal(null)
+    setErr(''); setLines(null); setApWarned(false)
     try {
-      const [j, s, n] = await Promise.all([
-        rpc('journal_for', { p_txn: txn.id }).catch(() => []),
+      const [seed, s, n] = await Promise.all([
+        rpc('web_txn_seed', { p_txn: txn.id }),
         rpc('suggest_journal', { p_txn: txn.id }).catch(() => []),
         supabase.from('transaction_notes')
-          .select('id,note,status,reply,created_at,answered_at')
+          .select('id,note,status,reply,created_at')
           .eq('transaction_id', txn.id).order('created_at', { ascending: false })
           .then(({ data }) => data || []),
       ])
-      setJournal(j); setSuggestion(s); setNotes(n)
+      setSeedSource(seed.length ? seed[0].source : null)
+      setLines(seed.map(l => ({
+        business: l.business || '',
+        account: l.account || '',
+        debit: num(l.debit) || '',
+        credit: num(l.credit) || '',
+        basis: l.basis || '',
+      })))
+      setSuggestion(s); setNotes(n)
     } catch (e) { setErr(e.message) }
   }, [txn.id])
 
-  /** Leaving a note is how the morning task gets told what to do. Without this
-   *  the web app would look complete while quietly starving that task — it
-   *  would report "No notes this morning" for ever and read as success. */
+  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    supabase.from('allocation_profiles').select('code,name').order('name')
+      .then(({ data }) => setProfiles(data || []))
+    supabase.from('v_chart_of_accounts').select('business,number,name')
+      .eq('usable', true).eq('postable', true).order('business').order('number')
+      .then(({ data }) => setAccounts(data || []))
+  }, [])
+
   async function addNote() {
     if (!noteText.trim()) return
     setBusy('note'); setErr('')
@@ -71,16 +96,6 @@ export default function TxnEditor({ txn, onDone }) {
     setBusy('')
   }
 
-  useEffect(() => { load() }, [load])
-
-  useEffect(() => {
-    supabase.from('allocation_profiles').select('code,name,detail').order('name')
-      .then(({ data }) => setProfiles(data || []))
-    supabase.from('v_chart_of_accounts').select('business,number,name')
-      .eq('usable', true).eq('postable', true).order('business').order('number')
-      .then(({ data }) => setAccounts(data || []))
-  }, [])
-
   async function pickProfile(code) {
     setProfile(code); setPreview(null); setErr('')
     if (!code) return
@@ -91,7 +106,6 @@ export default function TxnEditor({ txn, onDone }) {
         rpc('preview_allocation', { p_txn: txn.id, p_profile: code, p_gl_number: null, p_gst: gst }),
         rpc('suggest_expense_accounts', { p_txn: txn.id, p_profile: code }).catch(() => []),
       ])
-      // Overlay what each ledger has used before onto the expense lines only.
       const byBiz = Object.fromEntries((sug || []).map(s => [s.business, s]))
       setPreview((p || []).map(l => {
         const s = byBiz[l.business]
@@ -105,13 +119,10 @@ export default function TxnEditor({ txn, onDone }) {
 
   const applyPreview = () => {
     setLines((preview || []).map(l => ({
-      business: l.business || '',
-      account: l.gl_number || '',
-      debit: num(l.debit) || '',
-      credit: num(l.credit) || '',
-      basis: l.memo || '',
+      business: l.business || '', account: l.gl_number || '',
+      debit: num(l.debit) || '', credit: num(l.credit) || '', basis: l.memo || '',
     })))
-    setPreview(null); setProfile('')
+    setPreview(null); setProfile(''); setSeedSource('profile'); setApWarned(false)
     setMsg('Applied to the draft. Check any account marked “not in this chart”.')
   }
 
@@ -133,31 +144,44 @@ export default function TxnEditor({ txn, onDone }) {
 
   const filled = (lines || []).filter(l => l.business && l.account && (num(l.debit) || num(l.credit)))
   const canSave = filled.length >= 2 && offBy.length === 0
+  const apDebit = filled.some(l => l.account === '2100' && num(l.debit) > 0)
 
-  async function save() {
-    setBusy('save'); setErr(''); setMsg('')
+  async function save(markReviewed) {
+    // Settling a payable is not a journal edit. Warn once, allow on a second press.
+    if (apDebit && !apWarned) {
+      setApWarned(true)
+      setErr('This entry debits Accounts Payable, so it looks like it is settling an invoice. '
+           + 'Use “Apply this payment to invoices” above — otherwise the payment posts while the '
+           + 'payable stays outstanding. Press again to save it as is.')
+      return
+    }
+    setBusy(markReviewed ? 'saverev' : 'save'); setErr(''); setMsg('')
     try {
       const payload = filled.map(l => ({
-        business: l.business,
-        account: l.account,
-        debit: num(l.debit) || 0,
-        credit: num(l.credit) || 0,
-        basis: l.basis || null,
+        business: l.business, account: l.account,
+        debit: num(l.debit) || 0, credit: num(l.credit) || 0,
       }))
-      const saved = await rpc('set_journal_override', { p_txn: txn.id, p_lines: payload })
-      setMsg(`Saved — ${saved.length} line${saved.length === 1 ? '' : 's'}.`)
-      setLines(null)
-      await load()
-    } catch (e) { setErr(e.message) }
-    setBusy('')
-  }
+      await rpc('set_journal_override', { p_txn: txn.id, p_lines: payload })
 
-  async function markReviewed() {
-    setBusy('review'); setErr(''); setMsg('')
-    try {
-      const out = await rpc('bulk_mark_reviewed', { p_ids: [txn.id], p_note: 'Reviewed on the web console' })
-      setMsg((out && out[0] && out[0].outcome) || 'Marked reviewed.')
-      if (onDone) onDone()
+      if (markReviewed) {
+        const out = await rpc('bulk_mark_reviewed', {
+          p_ids: [txn.id], p_note: 'Reviewed on the web console',
+        })
+        const outcome = (out && out[0] && out[0].outcome) || 'reviewed'
+        if (/skipped/i.test(outcome)) {
+          setErr(`Saved, but not marked reviewed — ${outcome}.`)
+        } else {
+          setMsg(`${txn.ref} saved and reviewed.`)
+          if (onDone) { onDone(); return }
+        }
+      } else {
+        const { error } = await supabase.from('transactions')
+          .update({ status: 'in_review' }).eq('id', txn.id)
+        if (error) throw new Error(error.message)
+        setMsg('Entry saved. Still in the queue — use “Save and mark reviewed” when it is settled.')
+      }
+      setApWarned(false)
+      await load()
     } catch (e) { setErr(e.message) }
     setBusy('')
   }
@@ -177,62 +201,10 @@ export default function TxnEditor({ txn, onDone }) {
       {err && <div className="err">{err}</div>}
       {msg && <div className="note good">{msg}</div>}
 
-      {/* ---- what is posted now ---- */}
-      {!journal && <div className="loading">Reading…</div>}
-      {journal && journal.length > 0 && (
-        <>
-          <b style={{ fontSize: 12.5 }}>Posted</b>
-          <table style={{ marginTop: 3, marginBottom: 8 }}>
-            <tbody>
-              {journal.map((l, i) => (
-                <tr key={i}>
-                  <td style={{ width: 60 }}><span className="pill">{l.business}</span></td>
-                  <td style={{ width: 90 }} className="muted">{l.gl_number}</td>
-                  <td>{l.gl_name}{l.note && <div className="muted" style={{ fontSize: 11 }}>{l.note}</div>}</td>
-                  <td className="money" style={{ width: 100 }}>{num(l.debit) ? money(l.debit) : ''}</td>
-                  <td className="money" style={{ width: 100 }}>{num(l.credit) ? money(l.credit) : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-      {journal && journal.length === 0 && (
-        <div className="muted" style={{ marginBottom: 8 }}>Nothing posted against this yet.</div>
-      )}
-
-      {/* ---- the ledger's own history ---- */}
-      {suggestion.length > 0 && !lines && (
-        <details style={{ marginBottom: 8 }}>
-          <summary className="muted" style={{ cursor: 'pointer', fontSize: 12 }}>
-            What the ledger has done with this vendor before ({suggestion.length})
-          </summary>
-          <table style={{ marginTop: 3 }}>
-            <tbody>
-              {suggestion.map((s, i) => (
-                <tr key={i}>
-                  <td style={{ width: 60 }}><span className="pill">{s.business}</span></td>
-                  <td style={{ width: 90 }} className="muted">{s.account}</td>
-                  <td>{s.account_name}
-                    {s.basis && <div className="muted" style={{ fontSize: 11 }}>{s.basis}</div>}</td>
-                  <td className="money" style={{ width: 100 }}>{num(s.debit) ? money(s.debit) : ''}</td>
-                  <td className="money" style={{ width: 100 }}>{num(s.credit) ? money(s.credit) : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
-      )}
-
-      {/* ---- every supporting document, not just the first ---- */}
       <DocumentList txnId={txn.id} />
 
-      {/* ---- settling open payables ---- */}
-      {txn.direction === 'outflow' && (
-        <PayablesApply txn={txn} onDone={load} />
-      )}
+      {txn.direction === 'outflow' && <PayablesApply txn={txn} onDone={load} />}
 
-      {/* ---- the document, line by line ---- */}
       <ReceiptLines txnId={txn.id} />
 
       {/* ---- notes: what the morning task reads ---- */}
@@ -247,16 +219,10 @@ export default function TxnEditor({ txn, onDone }) {
                   </td>
                   <td>
                     {n.note}
-                    {n.reply && (
-                      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                        ↳ {n.reply}
-                      </div>
-                    )}
+                    {n.reply && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>↳ {n.reply}</div>}
                   </td>
                   <td style={{ width: 90 }}>
-                    <span className={'pill ' + (n.status === 'open' ? 'hold' : 'soft')}>
-                      {n.status}
-                    </span>
+                    <span className={'pill ' + (n.status === 'open' ? 'hold' : 'soft')}>{n.status}</span>
                   </td>
                 </tr>
               ))}
@@ -275,23 +241,21 @@ export default function TxnEditor({ txn, onDone }) {
       </div>
 
       {/* ---- allocation profile ---- */}
-      {!lines && (
-        <div className="bar" style={{ margin: '0 0 8px' }}>
-          <label>Allocation</label>
-          <select value={profile} onChange={e => pickProfile(e.target.value)} style={{ minWidth: 300 }}>
-            <option value="">— pick a profile to see the entry —</option>
-            {profiles.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
-          </select>
-          {busy === 'preview' && <span className="muted">Building it…</span>}
-          <span style={{ flex: 1 }} />
-          <button onClick={() => setLines([blank(), blank()])}>Write it by hand</button>
-          <button disabled={busy === 'review'} onClick={markReviewed}>
-            {busy === 'review' ? 'Marking…' : 'Mark reviewed'}
-          </button>
-        </div>
-      )}
+      <div className="bar" style={{ margin: '0 0 8px' }}>
+        <label>Allocation</label>
+        <select value={profile} onChange={e => pickProfile(e.target.value)} style={{ minWidth: 300 }}>
+          <option value="">— apply a profile instead —</option>
+          {profiles.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+        </select>
+        {busy === 'preview' && <span className="muted">Building it…</span>}
+        <span style={{ flex: 1 }} />
+        {suggestion.length > 0 && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            {suggestion.length} prior posting{suggestion.length === 1 ? '' : 's'} for this vendor
+          </span>
+        )}
+      </div>
 
-      {/* ---- the proposal, shown before it is applied ---- */}
       {preview && (
         <div className="note">
           <b>This is what would be posted</b>
@@ -303,8 +267,9 @@ export default function TxnEditor({ txn, onDone }) {
                   <td style={{ width: 90 }} className="muted">{l.gl_number}</td>
                   <td>
                     {l.gl_name || <span className="neg">not in this chart</span>}
-                    {l.why && <div className="muted" style={{ fontSize: 11 }}>{l.why}</div>}
-                    {l.memo && !l.why && <div className="muted" style={{ fontSize: 11 }}>{l.memo}</div>}
+                    {(l.why || l.memo) && (
+                      <div className="muted" style={{ fontSize: 11 }}>{l.why || l.memo}</div>
+                    )}
                   </td>
                   <td className="money" style={{ width: 100 }}>{num(l.debit) ? money(l.debit) : ''}</td>
                   <td className="money" style={{ width: 100 }}>{num(l.credit) ? money(l.credit) : ''}</td>
@@ -315,17 +280,24 @@ export default function TxnEditor({ txn, onDone }) {
           <div className="bar" style={{ margin: '8px 0 0' }}>
             <button className="primary" onClick={applyPreview}>Apply to the draft</button>
             <button onClick={() => { setPreview(null); setProfile('') }}>Discard</button>
-            <span className="muted" style={{ fontSize: 12 }}>
-              Nothing is saved until you press Save entry below.
-            </span>
+            <span className="muted" style={{ fontSize: 12 }}>Nothing is saved until you press Save.</span>
           </div>
         </div>
       )}
 
-      {/* ---- the editable draft ---- */}
+      {/* ---- the draft, always seeded ---- */}
+      {!lines && <div className="loading">Reading…</div>}
       {lines && (
         <div className="note">
-          <b>Draft entry</b>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <b>Entry</b>
+            {seedSource && SOURCE_LABEL[seedSource] && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                prefilled from {SOURCE_LABEL[seedSource]}
+              </span>
+            )}
+          </div>
+
           <table style={{ marginTop: 6 }}>
             <thead>
               <tr>
@@ -380,15 +352,20 @@ export default function TxnEditor({ txn, onDone }) {
 
           <div className="bar" style={{ margin: '8px 0 0' }}>
             <button onClick={() => setLines(ls => [...ls, blank()])}>Add a line</button>
+            <button onClick={load}>Reset</button>
             <span style={{ flex: 1 }} />
             {Object.entries(perBiz).map(([b, v]) => (
               <span key={b} className="muted" style={{ fontSize: 12 }}>
                 {b}: {money(v.d)} / {money(v.c)}
               </span>
             ))}
-            <button onClick={() => { setLines(null); setMsg('') }}>Cancel</button>
-            <button className="primary" disabled={!canSave || busy === 'save'} onClick={save}>
-              {busy === 'save' ? 'Saving…' : 'Save entry'}
+            <button disabled={!canSave || !!busy} onClick={() => save(false)}>
+              {busy === 'save' ? 'Saving…' : 'Save'}
+            </button>
+            <button className="primary" disabled={!canSave || !!busy} onClick={() => save(true)}>
+              {busy === 'saverev' ? 'Saving…'
+                : apDebit && apWarned ? 'Save anyway — no invoice marked paid'
+                : 'Save and mark reviewed'}
             </button>
           </div>
 
