@@ -135,6 +135,14 @@ tr.row-late td { background: #fef2f2; }
 .pill.soft { background: #ecfdf5; color: #065f46; margin-left: 4px; }
 .pill.hold { background: #fffbeb; color: #92400e; margin-left: 4px; }
 
+/* ---------- statements ---------- */
+.rpt-title { font-size: 15px; margin: 0 0 2px; font-weight: 650; }
+
+tr.drill { cursor: pointer; }
+tr.drill:hover td { background: #f1f5f9; }
+tr.expand > td { background: var(--bg); padding: 8px 10px; }
+tr.expand table { font-size: 12px; }
+
 /* ---------- sign in ---------- */
 .signin { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .signin form { width: 100%; max-width: 330px; }

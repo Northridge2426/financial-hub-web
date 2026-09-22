@@ -5,6 +5,11 @@ import Overview from './Overview.jsx'
 import PaymentsDue from './PaymentsDue.jsx'
 import PaymentPriority from './PaymentPriority.jsx'
 import Payables from './Payables.jsx'
+import Accounts from './Accounts.jsx'
+import BalanceSheet from './BalanceSheet.jsx'
+import IncomeStatement from './IncomeStatement.jsx'
+import Subscriptions from './Subscriptions.jsx'
+import Interest from './Interest.jsx'
 
 /** Pages, in the order the console lists them. Add one per build.
  *  Components, not elements — so a page mounts fresh when you switch to it
@@ -14,6 +19,11 @@ const PAGES = [
   { key: 'paydue', label: 'Payments due', Component: PaymentsDue },
   { key: 'payprio', label: 'Priority', Component: PaymentPriority },
   { key: 'payables', label: 'Payables', Component: Payables },
+  { key: 'accounts', label: 'Accounts', Component: Accounts },
+  { key: 'bsheet', label: 'Balance sheet', Component: BalanceSheet },
+  { key: 'istmt', label: 'Income statement', Component: IncomeStatement },
+  { key: 'subs', label: 'Subscriptions', Component: Subscriptions },
+  { key: 'interest', label: 'Interest', Component: Interest },
 ]
 
 export default function App() {
