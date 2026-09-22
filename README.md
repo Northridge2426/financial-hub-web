@@ -122,6 +122,14 @@ fresh and it refetches rather than showing figures read an hour ago.
   `v_chart_of_accounts`: `posted_here`, `in_sage_journal`, `used_by_allocations`,
   `used_by_roles`, `is_a_bank_account`. In JSX `0 && <span/>` renders a literal
   **0** — it compiles clean and looks broken. Coerce with `> 0`.
+- **A count is `bigint`, not `integer`, and `plpgsql` will not forgive it.**
+  `v_review_queue.docs`, `.doc_stubs`, `.splits` and `.jlines` are all bigint.
+  A wrapper declaring them `integer` works fine in `language sql`, which
+  coerces silently — then fails with *"structure of query does not match
+  function result type"* the moment it is rewritten as `plpgsql` with
+  `return query`, which requires an exact row type. The bug is latent from the
+  start and only surfaces on rewrite. Read the column types from
+  `information_schema` when declaring a RETURNS TABLE; do not infer them.
 - **Vite does not fail on missing env vars.** A build with absent secrets goes
   green and bakes in blanks; the app then dies in the browser. Green build ≠
   working site.

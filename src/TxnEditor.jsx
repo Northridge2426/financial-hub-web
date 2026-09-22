@@ -3,6 +3,7 @@ import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import ReceiptLines from './ReceiptLines.jsx'
+import PayablesApply from './PayablesApply.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
@@ -220,6 +221,11 @@ export default function TxnEditor({ txn, onDone }) {
             </tbody>
           </table>
         </details>
+      )}
+
+      {/* ---- settling open payables ---- */}
+      {txn.direction === 'outflow' && (
+        <PayablesApply txn={txn} onDone={load} />
       )}
 
       {/* ---- the document, line by line ---- */}
