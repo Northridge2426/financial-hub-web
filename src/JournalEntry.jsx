@@ -17,6 +17,9 @@ export default function JournalEntry() {
   const [from, setFrom] = useState('2026-01-01')
   const [to, setTo] = useState(today())
   const [rows, setRows] = useState(null)
+  const [killing, setKilling] = useState(null)   // jno awaiting a reason
+  const [killWhy, setKillWhy] = useState('')
+  const [removing, setRemoving] = useState(false)
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
 
@@ -47,6 +50,26 @@ export default function JournalEntry() {
     setLines(ls => ls.map((l, j) => j === i ? { ...l, [k]: v } : l))
 
   // Per-business balance. An entry spanning two entities must balance in each.
+  /**
+   * Removing an entry raised here.
+   *
+   * The UI does not decide what may be removed — `delete_journal_entry` does,
+   * and it refuses anything that is not origin HUB / source Manual, anything
+   * in a closed year, and anything without a reason. That is the right place
+   * for the rule, so this is only the way to reach it.
+   */
+  async function removeEntry(jno) {
+    if (!killWhy.trim()) { setErr('Say why. A deleted entry with no reason is worse than a wrong one.'); return }
+    setRemoving(true); setErr(''); setMsg('')
+    try {
+      const res = await rpc('delete_journal_entry', { p_jno: jno, p_reason: killWhy.trim() })
+      setMsg(typeof res === 'string' ? res : jno + ' removed.')
+      setKilling(null); setKillWhy('')
+      await load()
+    } catch (e) { setErr(e.message) }
+    setRemoving(false)
+  }
+
   const perBiz = {}
   for (const l of lines) {
     if (!l.business) continue
@@ -208,10 +231,11 @@ export default function JournalEntry() {
                   <th className="num" style={{ width: 60 }}>Lines</th>
                   <th className="num" style={{ width: 110 }}>Amount</th>
                   <th className="num" style={{ width: 60 }}>Docs</th>
+                  <th style={{ width: 74 }} />
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
+                {rows.map(r => [
                   <tr key={r.jno}>
                     <td className="muted">{r.jno}</td>
                     <td>{r.entry_date}</td>
@@ -223,8 +247,36 @@ export default function JournalEntry() {
                     <td className="money">
                       {num(r.docs) ? <span className="pill soft">{r.docs}</span> : <span className="muted">—</span>}
                     </td>
-                  </tr>
-                ))}
+                    <td>
+                      <button disabled={removing} style={{ padding: '1px 8px', fontSize: 11 }}
+                              onClick={() => { setKilling(killing === r.jno ? null : r.jno); setKillWhy('') }}>
+                        {killing === r.jno ? 'cancel' : 'remove'}
+                      </button>
+                    </td>
+                  </tr>,
+                  killing === r.jno && (
+                    <tr key={r.jno + '-kill'} className="expand">
+                      <td colSpan={9}>
+                        <div className="bar" style={{ margin: 0 }}>
+                          <span style={{ fontSize: 12.5 }}>Why is {r.jno} being removed?</span>
+                          <input value={killWhy} onChange={e => setKillWhy(e.target.value)}
+                                 placeholder="The reason is returned with the confirmation — say it plainly"
+                                 style={{ flex: 1, minWidth: 260 }}
+                                 onKeyDown={e => { if (e.key === 'Enter') removeEntry(r.jno) }} />
+                          <button disabled={!killWhy.trim() || removing}
+                                  onClick={() => removeEntry(r.jno)}>
+                            {removing ? 'Removing…' : `Remove ${r.jno} and its ${r.lines} lines`}
+                          </button>
+                        </div>
+                        <p className="hint" style={{ margin: '4px 0 0' }}>
+                          Only entries raised on this page can be removed, and not in a closed
+                          year — the database enforces both. Any documents attached are detached,
+                          not deleted.
+                        </p>
+                      </td>
+                    </tr>
+                  ),
+                ])}
               </tbody>
             </table>
           )}

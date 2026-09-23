@@ -151,9 +151,28 @@ export default function BankRecon() {
             </span>
           )}
           <span style={{ flex: 1 }} />
-          <button disabled={!!busy} onClick={runPreview}>
-            {busy === 'preview' ? 'Checking…' : 'Preview completing it'}
-          </button>
+          {st && st.finalised ? (
+            <>
+              <span className="pill soft">finalised</span>
+              {/* The console can undo this and the web app could not, which is
+                  the asymmetry worth closing: it let you lock a period here and
+                  then need the artifact to unlock it. */}
+              <button disabled={!!busy}
+                      title="Unlocks the period so lines can be matched again. Posts nothing and unmatches nothing."
+                      onClick={() => {
+                        if (!window.confirm(
+                          `Reopen ${st.account} ${st.period_start} → ${st.period_end}?\n\n`
+                          + 'The period stops being locked. Existing matches stay as they are.')) return
+                        act('reopen', () => rpc('bank_rec_reopen', { p_statement: sid }))
+                      }}>
+                {busy === 'reopen' ? 'Reopening…' : 'Reopen this period'}
+              </button>
+            </>
+          ) : (
+            <button disabled={!!busy} onClick={runPreview}>
+              {busy === 'preview' ? 'Checking…' : 'Preview completing it'}
+            </button>
+          )}
         </div>
       )}
 
@@ -216,6 +235,16 @@ export default function BankRecon() {
                       {!r.has_entry && <span className="pill hold">no entry</span>}
                     </td>
                     <td className="money" style={{ width: 110 }}>{signed(r.amount)}</td>
+                    <td style={{ width: 62 }}>
+                      {r.matched && r.match_id && (
+                        <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
+                                title="Breaks this match and puts both sides back on the open lists. Posts nothing."
+                                onClick={() => act('unmatch', () =>
+                                  rpc('bank_rec_unmatch', { p_match: r.match_id }))}>
+                          unmatch
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -243,6 +272,16 @@ export default function BankRecon() {
                       {r.carried_in && <span className="pill hold">carried in</span>}
                     </td>
                     <td className="money" style={{ width: 110 }}>{signed(r.amount)}</td>
+                    <td style={{ width: 62 }}>
+                      {r.matched && r.match_id && (
+                        <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
+                                title="Breaks this match and puts both sides back on the open lists. Posts nothing."
+                                onClick={() => act('unmatch', () =>
+                                  rpc('bank_rec_unmatch', { p_match: r.match_id }))}>
+                          unmatch
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
