@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import DateRange from './DateRange.jsx'
 import { supabase } from './supabase.js'
 import { money } from './format.js'
 
@@ -19,6 +20,7 @@ export default function AllOutstanding() {
   const [account, setAccount] = useState('')
   const [why, setWhy] = useState('')
   const [q, setQ] = useState('')
+  const [range, setRange] = useState({ from: '', to: '' })
 
   useEffect(() => {
     supabase.from('v_all_outstanding')
@@ -44,8 +46,10 @@ export default function AllOutstanding() {
       (!group || r.vendor_group === group) &&
       (!account || r.account === account) &&
       (!why || r.why === why) &&
+      (!range.from || r.txn_date >= range.from) &&
+      (!range.to   || r.txn_date <= range.to) &&
       (!needle || `${r.ref} ${r.descr} ${r.merchant || ''}`.toLowerCase().includes(needle)))
-  }, [rows, group, account, why, q])
+  }, [rows, group, account, why, q, range.from, range.to])
 
   if (err) return <div className="page"><div className="err">{err}</div></div>
   if (!rows) return <div className="page"><div className="loading">Loading…</div></div>
@@ -62,6 +66,7 @@ export default function AllOutstanding() {
       </p>
 
       <div className="bar">
+        <DateRange value={range} onChange={setRange} />
         <select value={group} onChange={e => setGroup(e.target.value)}>
           <option value="">All vendor groups</option>
           {groups.map(g => <option key={g} value={g}>{g}</option>)}

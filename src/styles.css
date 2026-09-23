@@ -209,3 +209,16 @@ tr.rowsel td { background: #eef2ff; }
 /* Document pointer buttons sit inline with pills. */
 .doclink { display: inline-block; }
 .doclink button { padding: 1px 8px; font-size: 11px; border-radius: 999px; margin-left: 4px; }
+
+/* ---------- foldable sections in the transaction panel ---------- */
+.sec { border: 1px solid var(--line); border-radius: 8px; background: var(--card); margin-bottom: 8px; }
+.sechead {
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 7px 10px; font-size: 12.5px; color: #1e293b; user-select: none;
+}
+.sechead:hover { background: var(--bg); }
+.sec.on > .sechead { border-bottom: 1px solid #f1f5f9; }
+.caretw { color: #94a3b8; width: 9px; font-size: 10px; }
+.seccount { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.seccount.warn { color: var(--warn); font-weight: 600; }
+.secbody { padding: 8px 10px 10px; }

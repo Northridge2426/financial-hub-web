@@ -4,6 +4,7 @@ import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import TxnEditor from './TxnEditor.jsx'
 import DocLink from './DocLink.jsx'
+import DateRange from './DateRange.jsx'
 
 const num = v => Number(v) || 0
 
@@ -46,6 +47,7 @@ export default function ReviewQueue({ kind: fixedKind }) {
   const [biz, setBiz] = useState('')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState('date')
+  const [range, setRange] = useState({ from: '', to: '' })
   const [groups, setGroups] = useState([])
   const [rows, setRows] = useState(null)
   const [err, setErr] = useState('')
@@ -69,9 +71,11 @@ export default function ReviewQueue({ kind: fixedKind }) {
         p_search: search.trim() || null,
         p_sort: sort,
         p_limit: 400,
+        p_from: range.from || null,
+        p_to: range.to || null,
       }))
     } catch (e) { setErr(e.message) }
-  }, [kind, biz, search, sort])
+  }, [kind, biz, search, sort, range.from, range.to])
 
   useEffect(() => {
     const t = setTimeout(load, 250)   // debounce the search box
@@ -107,6 +111,7 @@ export default function ReviewQueue({ kind: fixedKind }) {
         </select>
         <input type="search" placeholder="Descriptor, merchant or ref…" value={search}
                onChange={e => setSearch(e.target.value)} style={{ width: 240 }} />
+        <DateRange value={range} onChange={setRange} />
         {rows && <span className="muted" style={{ fontSize: 12 }}>
           {rows.length}{rows.length === 400 ? '+' : ''} · ${money(total)}
         </span>}
@@ -199,7 +204,7 @@ export default function ReviewQueue({ kind: fixedKind }) {
                 sel === r.id && (
                   <tr key={r.id + '-d'} className="expand">
                     <td colSpan={8}>
-                      <TxnEditor txn={r} onDone={load} />
+                      <TxnEditor txn={r} kind={kind} onDone={load} />
                     </td>
                   </tr>
                 ),

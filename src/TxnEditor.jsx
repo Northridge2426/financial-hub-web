@@ -4,7 +4,8 @@ import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import ReceiptLines from './ReceiptLines.jsx'
 import PayablesApply from './PayablesApply.jsx'
-import DocumentList from './DocumentList.jsx'
+import DocumentList, { documentsCount } from './DocumentList.jsx'
+import Section from './Section.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
@@ -36,7 +37,18 @@ const SOURCE_LABEL = {
  * marking an invoice paid. Saving an AP debit here posts the cash side and
  * leaves the payable outstanding — it half works, which is worse than failing.
  */
-export default function TxnEditor({ txn, onDone }) {
+/** Which section opens first depends on the queue you are working. Documents
+ *  always open when there are any — you cannot judge a row without them. */
+const OPEN_FOR = {
+  plain:    { entry: true },
+  reopened: { entry: true },
+  reviewed: { entry: true },
+  apwait:   { entry: true },
+  docs:     { pay: true },
+}
+
+export default function TxnEditor({ txn, kind, onDone }) {
+  const opens = OPEN_FOR[kind] || (String(kind || '').startsWith('vg:') ? { entry: true } : { entry: true })
   const [seedSource, setSeedSource] = useState(null)
   const [suggestion, setSuggestion] = useState([])
   const [profiles, setProfiles] = useState([])
@@ -50,6 +62,9 @@ export default function TxnEditor({ txn, onDone }) {
   const [notes, setNotes] = useState([])
   const [noteText, setNoteText] = useState('')
   const [apWarned, setApWarned] = useState(false)
+  const [projects, setProjects] = useState([])
+  const [docCount, setDocCount] = useState('')
+  const [txnNote, setTxnNote] = useState('')
   const entities = useEntities()
 
   const load = useCallback(async () => {
@@ -70,6 +85,7 @@ export default function TxnEditor({ txn, onDone }) {
         debit: num(l.debit) || '',
         credit: num(l.credit) || '',
         basis: l.basis || '',
+        projects: l.project_ids || [],
       })))
       setSuggestion(s); setNotes(n)
     } catch (e) { setErr(e.message) }
@@ -83,7 +99,16 @@ export default function TxnEditor({ txn, onDone }) {
     supabase.from('v_chart_of_accounts').select('business,number,name')
       .eq('usable', true).eq('postable', true).order('business').order('number')
       .then(({ data }) => setAccounts(data || []))
+    supabase.from('projects').select('id,name').eq('active', true).order('name')
+      .then(({ data }) => setProjects(data || []))
   }, [])
+
+  // transactions.notes is a different thing from the notes queue: it rides
+  // along with the entry in the same save, so it cannot be forgotten.
+  useEffect(() => {
+    supabase.from('transactions').select('notes').eq('id', txn.id).single()
+      .then(({ data }) => setTxnNote((data && data.notes) || ''))
+  }, [txn.id])
 
   async function addNote() {
     if (!noteText.trim()) return
@@ -121,6 +146,7 @@ export default function TxnEditor({ txn, onDone }) {
     setLines((preview || []).map(l => ({
       business: l.business || '', account: l.gl_number || '',
       debit: num(l.debit) || '', credit: num(l.credit) || '', basis: l.memo || '',
+      projects: [],
     })))
     setPreview(null); setProfile(''); setSeedSource('profile'); setApWarned(false)
     setMsg('Applied to the draft. Check any account marked “not in this chart”.')
@@ -163,6 +189,21 @@ export default function TxnEditor({ txn, onDone }) {
       }))
       await rpc('set_journal_override', { p_txn: txn.id, p_lines: payload })
 
+      // set_journal_override does not carry projects, so they are applied
+      // afterwards, matched on entity and account exactly as the console does.
+      for (const l of filled) {
+        if (!(l.projects || []).length) continue
+        await rpc('tag_transaction_lines', {
+          p_txn: txn.id, p_business: l.business,
+          p_account: l.account, p_projects: l.projects,
+        })
+      }
+
+      // The note goes with the entry, in the same save. A note that only
+      // persists when you remember a separate button is a note you will lose.
+      await supabase.from('transactions')
+        .update({ notes: txnNote.trim() || null }).eq('id', txn.id)
+
       if (markReviewed) {
         const out = await rpc('bulk_mark_reviewed', {
           p_ids: [txn.id], p_note: 'Reviewed on the web console',
@@ -201,14 +242,26 @@ export default function TxnEditor({ txn, onDone }) {
       {err && <div className="err">{err}</div>}
       {msg && <div className="note good">{msg}</div>}
 
-      <DocumentList txnId={txn.id} />
+      <Section title="Source documents" count={docCount} defaultOpen
+               tone={/no file/.test(docCount) ? 'warn' : ''}>
+        <DocumentList txnId={txn.id} onChanged={onDone} onCount={setDocCount} />
+      </Section>
 
-      {txn.direction === 'outflow' && <PayablesApply txn={txn} onDone={load} />}
+      {txn.direction === 'outflow' && (
+        <Section title="Apply this payment to invoices" defaultOpen={!!opens.pay}>
+          <PayablesApply txn={txn} onDone={load} />
+        </Section>
+      )}
 
-      <ReceiptLines txnId={txn.id} />
+      <Section title="The document, line by line" defaultOpen={false}>
+        <ReceiptLines txnId={txn.id} />
+      </Section>
 
       {/* ---- notes: what the morning task reads ---- */}
-      <div className="note" style={{ marginBottom: 8 }}>
+      <Section title="Notes" defaultOpen={false}
+               count={notes.filter(n => n.status === 'open').length
+                        ? notes.filter(n => n.status === 'open').length + ' open' : ''}>
+      <div>
         {notes.length > 0 && (
           <table style={{ marginBottom: 6 }}>
             <tbody>
@@ -239,6 +292,7 @@ export default function TxnEditor({ txn, onDone }) {
           </button>
         </div>
       </div>
+      </Section>
 
       {/* ---- allocation profile ---- */}
       <div className="bar" style={{ margin: '0 0 8px' }}>
@@ -288,9 +342,14 @@ export default function TxnEditor({ txn, onDone }) {
       {/* ---- the draft, always seeded ---- */}
       {!lines && <div className="loading">Reading…</div>}
       {lines && (
-        <div className="note">
+        <Section title="Entry" defaultOpen={!!opens.entry}
+                 tone={offBy.length ? 'warn' : ''}
+                 count={lines.length
+                   ? `${filled.length} line${filled.length === 1 ? '' : 's'}`
+                     + (offBy.length ? ' · does not balance' : ' · balances')
+                   : 'empty'}>
+        <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <b>Entry</b>
             {seedSource && SOURCE_LABEL[seedSource] && (
               <span className="muted" style={{ fontSize: 12 }}>
                 prefilled from {SOURCE_LABEL[seedSource]}
@@ -305,6 +364,7 @@ export default function TxnEditor({ txn, onDone }) {
                 <th>Account</th>
                 <th className="num" style={{ width: 120 }}>Debit</th>
                 <th className="num" style={{ width: 120 }}>Credit</th>
+                <th style={{ width: 150 }}>Projects</th>
                 <th style={{ width: 36 }} />
               </tr>
             </thead>
@@ -340,6 +400,13 @@ export default function TxnEditor({ txn, onDone }) {
                            disabled={num(l.debit) > 0}
                            onChange={e => setLine(i, 'credit', e.target.value)} />
                   </td>
+                  <td style={{ fontSize: 11 }}>
+                    <select multiple value={l.projects || []} style={{ width: '100%', height: 44 }}
+                            onChange={e => setLine(i, 'projects',
+                              [...e.target.selectedOptions].map(o => o.value))}>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </td>
                   <td>
                     {lines.length > 2 && (
                       <button onClick={() => setLines(ls => ls.filter((_, j) => j !== i))}>×</button>
@@ -369,6 +436,13 @@ export default function TxnEditor({ txn, onDone }) {
             </button>
           </div>
 
+          <div className="bar" style={{ margin: '8px 0 0' }}>
+            <label htmlFor="txnNote">Note</label>
+            <input id="txnNote" value={txnNote} onChange={e => setTxnNote(e.target.value)}
+                   placeholder="Saved with the entry — what this was, in your words"
+                   style={{ flex: 1, minWidth: 260 }} />
+          </div>
+
           {offBy.length > 0 && (
             <div className="note warn" style={{ marginTop: 8 }}>
               <b>Not balanced.</b>{' '}
@@ -385,6 +459,7 @@ export default function TxnEditor({ txn, onDone }) {
             </div>
           )}
         </div>
+        </Section>
       )}
     </div>
   )

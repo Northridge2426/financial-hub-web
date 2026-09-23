@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import DateRange from './DateRange.jsx'
 import { rpc } from './supabase.js'
 import { money } from './format.js'
 import DocLink from './DocLink.jsx'
@@ -23,6 +24,7 @@ export default function QuickReview() {
   const [rule, setRule] = useState('')
   const [biz, setBiz] = useState('')
   const [stmtOnly, setStmtOnly] = useState(false)
+  const [range, setRange] = useState({ from: '', to: '' })
   const [picked, setPicked] = useState(() => new Set())
   const [posting, setPosting] = useState(false)
   const [result, setResult] = useState(null)
@@ -47,7 +49,9 @@ export default function QuickReview() {
   const shown = useMemo(() => (rows || []).filter(r =>
     (!rule || r.rule_name === rule) &&
     (!biz || r.business === biz) &&
-    (!stmtOnly || r.has_statement)), [rows, rule, biz, stmtOnly])
+    (!stmtOnly || r.has_statement) &&
+    (!range.from || r.txn_date >= range.from) &&
+    (!range.to   || r.txn_date <= range.to)), [rows, rule, biz, stmtOnly, range.from, range.to])
 
   const groups = useMemo(() => {
     const G = []
@@ -117,6 +121,7 @@ export default function QuickReview() {
       )}
 
       <div className="bar">
+        <DateRange value={range} onChange={setRange} />
         <select value={rule} onChange={e => setRule(e.target.value)} style={{ maxWidth: 280 }}>
           <option value="">All rules</option>
           {allRules.map(r => <option key={r} value={r}>{r}</option>)}
