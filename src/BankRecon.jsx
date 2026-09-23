@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 
@@ -25,6 +25,8 @@ export default function BankRecon() {
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState('')
   const [hideMatched, setHideMatched] = useState(true)
+  const [acct, setAcct] = useState('')
+  const [showDone, setShowDone] = useState(false)
 
   const loadStatements = useCallback(async () => {
     const { data, error } = await supabase.from('v_bank_rec_statements')
@@ -71,6 +73,25 @@ export default function BankRecon() {
     setBusy('')
   }
 
+  // One row per account, newest work first, with how much is left on it.
+  const accountList = useMemo(() => {
+    const m = new Map()
+    for (const s of statements || []) {
+      let a = m.get(s.account)
+      if (!a) { a = { account: s.account, kind: s.kind, business: s.business, openPeriods: 0 }; m.set(s.account, a) }
+      if (!s.finalised) a.openPeriods += 1
+    }
+    return [...m.values()].sort((x, y) => (y.openPeriods - x.openPeriods) || x.account.localeCompare(y.account))
+  }, [statements])
+
+  const forAccount = useMemo(
+    () => (statements || []).filter(s => s.account === acct)
+                            .sort((a, z) => (z.period_end || '').localeCompare(a.period_end || '')),
+    [statements, acct])
+
+  const doneCount = forAccount.filter(s => s.finalised).length
+  const periods = forAccount.filter(s => showDone || !s.finalised)
+
   const st = (statements || []).find(s => s.statement_id === sid)
   const bankShown = (bank || []).filter(r => !hideMatched || !r.matched)
   const glShown = (glLines || []).filter(r => !hideMatched || !r.matched)
@@ -94,18 +115,53 @@ export default function BankRecon() {
 
       {!statements && <div className="loading">Reading…</div>}
 
+      {/* Account first, then period. One list of every statement across every
+          account ran to hundreds of entries in no order anyone could scan, and
+          finalised periods — the ones you are least likely to want — sat in the
+          middle of it. */}
       {statements && (
         <div className="bar">
-          <select value={sid} onChange={e => setSid(e.target.value)} style={{ minWidth: 420 }}>
-            <option value="">Pick a statement…</option>
-            {statements.map(s => (
-              <option key={s.statement_id} value={s.statement_id}>
-                {s.finalised ? '✓ ' : ''}{s.account} · {s.period_start} → {s.period_end}
-                {num(s.bank_open) || num(s.gl_open)
-                  ? ` · ${s.bank_open} bank / ${s.gl_open} ledger open` : ' · clear'}
+          <label htmlFor="brAcct">Account</label>
+          <select id="brAcct" value={acct} style={{ minWidth: 260 }}
+                  onChange={e => { setAcct(e.target.value); setSid('') }}>
+            <option value="">Pick an account…</option>
+            {accountList.map(a => (
+              <option key={a.account} value={a.account}>
+                {a.account}
+                {a.openPeriods ? ` · ${a.openPeriods} to do` : ' · all done'}
               </option>
             ))}
           </select>
+
+          {acct && (
+            <>
+              <label htmlFor="brPeriod">Period</label>
+              <select id="brPeriod" value={sid} style={{ minWidth: 300 }}
+                      onChange={e => setSid(e.target.value)}>
+                <option value="">Pick a period…</option>
+                {periods.map(s => (
+                  <option key={s.statement_id} value={s.statement_id}>
+                    {s.finalised ? '✓ ' : ''}{s.period_start} → {s.period_end}
+                    {num(s.bank_open) || num(s.gl_open)
+                      ? ` · ${s.bank_open} bank / ${s.gl_open} ledger open` : ' · clear'}
+                  </option>
+                ))}
+              </select>
+              {doneCount > 0 && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={showDone} style={{ width: 'auto' }}
+                         onChange={e => {
+                           setShowDone(e.target.checked)
+                           // Unticking while a finalised period is open would leave
+                           // the pane showing a period the selector no longer offers.
+                           if (!e.target.checked && st && st.finalised) setSid('')
+                         }} />
+                  Show the {doneCount} completed
+                </label>
+              )}
+            </>
+          )}
+
           {sid && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
               <input type="checkbox" checked={hideMatched} style={{ width: 'auto' }}

@@ -26,6 +26,12 @@ export default function ReceiptLines({ txnId, receiptId }) {
   const [msg, setMsg] = useState('')
   const [splitting, setSplitting] = useState(null)
   const [parts, setParts] = useState([])
+  const [voiding, setVoiding] = useState(null)   // receipt awaiting a reason
+  const [voidWhy, setVoidWhy] = useState('')
+  const [fx, setFx] = useState(null)             // receipt whose currency is being set
+  const [fxCur, setFxCur] = useState('USD')
+  const [fxAmt, setFxAmt] = useState('')
+  const [fxGst, setFxGst] = useState('')
   const entities = useEntities()
 
   useEffect(() => {
@@ -109,17 +115,66 @@ export default function ReceiptLines({ txnId, receiptId }) {
     ])
   }
 
-  async function doSplit(rid, line) {
+  /**
+   * `set_split_parts` rather than `split_receipt_line`: it REPLACES the split
+   * rather than only creating one, so the same control edits an existing split
+   * and an empty list undoes it. It also keeps the accounts already chosen on
+   * the parts it rebuilds, and reports whether the result balances.
+   */
+  async function doSplit(rid, line, clear = false) {
     setBusy(line.line_id); setErr(''); setMsg('')
     try {
-      await rpc('split_receipt_line', {
-        p_line_id: line.line_id,
-        p_parts: parts.filter(p => p.business && num(p.pct) > 0)
-                      .map(p => ({ business: p.business, pct: num(p.pct) })),
-      })
+      const payload = clear ? [] : parts
+        .filter(p => p.business && num(p.pct) > 0)
+        .map(p => ({ business: p.business, pct: num(p.pct) }))
+      const res = await rpc('set_split_parts', { p_line_id: line.line_id, p_parts: payload })
       setSplitting(null); setParts([])
       await loadLines(rid)          // the shape changed — read it back
-      setMsg('Split. The new lines still need their accounts.')
+      if (clear) setMsg('Split undone — back to one line.')
+      else if (res && res.length && res.some(x => x.balanced === false)) {
+        setMsg('Split saved, but the parts do not add back to the line. Check the percentages.')
+      } else setMsg('Split. Any new part still needs its account.')
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
+  /**
+   * Voiding a document.
+   *
+   * The refusal that matters lives in `void_document`: it will not void
+   * anything with journal lines posted against it, because the ledger would
+   * then say something the document no longer supports. That check is in the
+   * function, not here.
+   */
+  async function voidDoc(rid) {
+    setBusy(rid); setErr(''); setMsg('')
+    try {
+      const res = await rpc('void_document', { p_receipt: rid, p_reason: voidWhy.trim() || null })
+      setMsg(typeof res === 'string' ? res : 'Voided.')
+      setVoiding(null); setVoidWhy('')
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
+  /**
+   * A foreign-currency document. The figures on the paper are the foreign ones;
+   * what the books carry is the converted amount. Recording the original here
+   * is what makes the rate auditable later instead of a number nobody can
+   * reproduce.
+   */
+  async function setCurrency(rid) {
+    setBusy(rid); setErr(''); setMsg('')
+    try {
+      const res = await rpc('set_document_currency', {
+        p_receipt: rid,
+        p_currency: fxCur,
+        p_amount_ff: fxAmt === '' ? null : num(fxAmt),
+        p_gst_ff: fxGst === '' ? null : num(fxGst),
+      })
+      setMsg(typeof res === 'string' ? res : 'Currency recorded.')
+      setFx(null); setFxAmt(''); setFxGst('')
+      await load()
     } catch (e) { setErr(e.message) }
     setBusy('')
   }
@@ -149,7 +204,58 @@ export default function ReceiptLines({ txnId, receiptId }) {
               {rows && (uncoded
                 ? <span className="pill hold">{uncoded} line{uncoded === 1 ? '' : 's'} uncoded</span>
                 : <span className="pill soft">all coded</span>)}
+              <button style={{ padding: '1px 8px', fontSize: 11 }}
+                      title="Record what the paper is actually in. The books keep the converted amount; this is what makes the rate reproducible later."
+                      onClick={() => { setFx(fx === r.receipt_id ? null : r.receipt_id); setFxAmt(''); setFxGst('') }}>
+                {fx === r.receipt_id ? 'cancel' : 'currency…'}
+              </button>
+              <button style={{ padding: '1px 8px', fontSize: 11 }}
+                      title="Takes the document out of every queue. Refused if anything is posted against it."
+                      onClick={() => { setVoiding(voiding === r.receipt_id ? null : r.receipt_id); setVoidWhy('') }}>
+                {voiding === r.receipt_id ? 'cancel' : 'void…'}
+              </button>
             </div>
+
+            {fx === r.receipt_id && (
+              <div className="bar" style={{ margin: '6px 0 0' }}>
+                <span style={{ fontSize: 12.5 }}>The document is in</span>
+                <select value={fxCur} onChange={e => setFxCur(e.target.value)}>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="CAD">CAD — it is not foreign</option>
+                </select>
+                <label>Amount</label>
+                <input type="number" step="0.01" value={fxAmt} style={{ width: 120 }}
+                       onChange={e => setFxAmt(e.target.value)} placeholder="on the paper" />
+                <label>GST</label>
+                <input type="number" step="0.01" value={fxGst} style={{ width: 110 }}
+                       onChange={e => setFxGst(e.target.value)} placeholder="optional" />
+                <button className="primary" disabled={busy === r.receipt_id}
+                        onClick={() => setCurrency(r.receipt_id)}>
+                  {busy === r.receipt_id ? 'Saving…' : 'Record it'}
+                </button>
+                <span className="muted" style={{ fontSize: 11.5 }}>
+                  The rate comes from the converted amount already on the books.
+                </span>
+              </div>
+            )}
+
+            {voiding === r.receipt_id && (
+              <div className="bar" style={{ margin: '6px 0 0' }}>
+                <span style={{ fontSize: 12.5 }}>Why is this being voided?</span>
+                <input value={voidWhy} onChange={e => setVoidWhy(e.target.value)}
+                       placeholder="e.g. a duplicate of the invoice already booked"
+                       style={{ flex: 1, minWidth: 240 }}
+                       onKeyDown={e => { if (e.key === 'Enter') voidDoc(r.receipt_id) }} />
+                <button disabled={busy === r.receipt_id} onClick={() => voidDoc(r.receipt_id)}>
+                  {busy === r.receipt_id ? 'Voiding…' : 'Void it'}
+                </button>
+                <span className="muted" style={{ fontSize: 11.5 }}>
+                  Refused if anything is posted against it — reverse the entry first.
+                </span>
+              </div>
+            )}
 
             {!rows && <div className="loading">Reading the lines…</div>}
 
@@ -216,12 +322,20 @@ export default function ReceiptLines({ txnId, receiptId }) {
                         </select>
                       </td>
                       <td style={{ fontSize: 11 }}>
-                        <select multiple value={l.project_ids || []} style={{ width: '100%', height: 46 }}
-                                disabled={busy === l.line_id}
-                                onChange={e => setLineProjects(r.receipt_id, l,
-                                  [...e.target.selectedOptions].map(o => o.value))}>
-                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
+                        <div className="tickbox">
+                          {projects.map(p => {
+                            const on = (l.project_ids || []).includes(p.id)
+                            return (
+                              <label key={p.id} className="tick">
+                                <input type="checkbox" checked={on} disabled={busy === l.line_id}
+                                       onChange={() => setLineProjects(r.receipt_id, l,
+                                         on ? (l.project_ids || []).filter(x => x !== p.id)
+                                            : [...(l.project_ids || []), p.id])} />
+                                {p.name}
+                              </label>
+                            )
+                          })}
+                        </div>
                       </td>
                       <td style={{ fontSize: 11 }}>
                         <button disabled={!l.gl_number || busy === l.line_id}
@@ -230,7 +344,7 @@ export default function ReceiptLines({ txnId, receiptId }) {
                           fill down
                         </button>{' '}
                         <button disabled={busy === l.line_id || !!l.parent_line_id}
-                                title="Divide this line between entities by percentage."
+                                title="Divide this line between entities by percentage. Opening it again edits or undoes the split."
                                 onClick={() => beginSplit(l)}>
                           split
                         </button>
@@ -282,10 +396,17 @@ export default function ReceiptLines({ txnId, receiptId }) {
                             </span>
                             <span style={{ flex: 1 }} />
                             <button onClick={() => { setSplitting(null); setParts([]) }}>Cancel</button>
+                            {num(l.split_pct) > 0 || rows.some(x => x.parent_line_id === l.line_id) ? (
+                              <button disabled={busy === l.line_id}
+                                      title="Removes the parts and puts the line back as it was."
+                                      onClick={() => doSplit(r.receipt_id, l, true)}>
+                                Undo the split
+                              </button>
+                            ) : null}
                             <button className="primary"
                                     disabled={Math.abs(pctTotal - 100) > 0.005 || busy === l.line_id}
                                     onClick={() => doSplit(r.receipt_id, l)}>
-                              Split it
+                              {busy === l.line_id ? 'Saving…' : 'Split it'}
                             </button>
                           </div>
                         </td>
