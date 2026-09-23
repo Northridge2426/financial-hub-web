@@ -121,6 +121,7 @@ export default function App() {
   const [pageKey, setPageKey] = useState(remembered)
   const [openMenu, setOpenMenu] = useState(null)
   const [counts, setCounts] = useState(null)
+  const [countErr, setCountErr] = useState('')
   const navRef = useRef(null)
 
   useEffect(() => {
@@ -146,15 +147,22 @@ export default function App() {
     }
   }, [openMenu])
 
+  // web_queue_counts() wraps queue_counts(), which is the canonical count for
+  // every review queue — the same function the queue itself is filtered by, so
+  // a badge can never disagree with what opening it shows. The wrapper exists
+  // because the raw one times out for a signed-in user: 8s cap, RLS re-checked
+  // per row. The error is SHOWN rather than swallowed — silently missing
+  // badges is how this went unnoticed for a whole push.
   // queue_counts() is the canonical count for every review queue — the same
   // function the queue itself is filtered by, so a badge can never disagree
   // with what opening it shows. Refetched on each page change so the numbers
   // fall as you work, rather than going stale until a reload.
   useEffect(() => {
     if (!session) return
-    rpc('queue_counts')
+    rpc('web_queue_counts')
       .then(r => setCounts(Object.fromEntries(r.map(x => [x.k, Number(x.n) || 0]))))
-      .catch(() => setCounts(null))
+      .then(() => setCountErr(''))
+      .catch(e => { setCounts(null); setCountErr(e.message) })
   }, [session, pageKey])
 
   if (session === undefined) {
@@ -171,6 +179,9 @@ export default function App() {
       <div className="topbar">
         <h1>Financial Hub</h1>
         {counts?.allout != null && <span className="pill">{counts.allout} outstanding</span>}
+        {countErr && (
+          <span className="pill bad" title={'queue_counts: ' + countErr}>counts unavailable</span>
+        )}
         <span className="spacer" />
         <span className="who">{session.user.email}</span>
         <button onClick={() => supabase.auth.signOut()}>Sign out</button>
