@@ -44,7 +44,7 @@ export default function Transfers() {
     try {
       const args = { p_from: from, p_to: to, p_window: Number(window) }
       const [p, l] = await Promise.all([
-        rpc('transfer_match_plan', args),
+        rpc('web_transfer_match_plan', args),
         rpc('tp_unmatched', args),
       ])
       setPlan(p.filter(r => !r.already_paired))

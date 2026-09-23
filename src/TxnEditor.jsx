@@ -6,6 +6,7 @@ import ReceiptLines from './ReceiptLines.jsx'
 import PayablesApply from './PayablesApply.jsx'
 import DocumentList, { documentsCount } from './DocumentList.jsx'
 import Section from './Section.jsx'
+import ApBooked from './ApBooked.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
@@ -64,20 +65,29 @@ export default function TxnEditor({ txn, kind, onDone }) {
   const [apWarned, setApWarned] = useState(false)
   const [projects, setProjects] = useState([])
   const [docCount, setDocCount] = useState('')
+  const [apBooked, setApBooked] = useState('')
+  const [applied, setApplied] = useState(null)
   const [txnNote, setTxnNote] = useState('')
+  const [bankAccounts, setBankAccounts] = useState([])
+  const [xferTo, setXferTo] = useState('')
+  const [splitState, setSplitState] = useState(0)
+  const [preSplit, setPreSplit] = useState(null)
   const entities = useEntities()
 
   const load = useCallback(async () => {
     setErr(''); setLines(null); setApWarned(false)
+    setSplitState(0); setPreSplit(null)
     try {
-      const [seed, s, n] = await Promise.all([
+      const [seed, s, n, ap] = await Promise.all([
         rpc('web_txn_seed', { p_txn: txn.id }),
         rpc('suggest_journal', { p_txn: txn.id }).catch(() => []),
         supabase.from('transaction_notes')
           .select('id,note,status,reply,created_at')
           .eq('transaction_id', txn.id).order('created_at', { ascending: false })
           .then(({ data }) => data || []),
+        rpc('web_txn_applied', { p_txn: txn.id }).catch(() => []),
       ])
+      setApplied(ap && ap.length && ap[0].applied ? ap[0] : null)
       setSeedSource(seed.length ? seed[0].source : null)
       setLines(seed.map(l => ({
         business: l.business || '',
@@ -101,6 +111,8 @@ export default function TxnEditor({ txn, kind, onDone }) {
       .then(({ data }) => setAccounts(data || []))
     supabase.from('projects').select('id,name').eq('active', true).order('name')
       .then(({ data }) => setProjects(data || []))
+    supabase.from('accounts').select('id,name').eq('active', true).order('name')
+      .then(({ data }) => setBankAccounts(data || []))
   }, [])
 
   // transactions.notes is a different thing from the notes queue: it rides
@@ -172,6 +184,93 @@ export default function TxnEditor({ txn, kind, onDone }) {
   const canSave = filled.length >= 2 && offBy.length === 0
   const apDebit = filled.some(l => l.account === '2100' && num(l.debit) > 0)
 
+  /**
+   * Halve — then quarter — every DEBIT line, leaving the credit side alone,
+   * because the card was charged once. Largest-remainder, so the odd cents go
+   * to the first shares and the split still adds back to the original: 367.77
+   * into quarters is 91.95, 91.94, 91.94, 91.94, and doing that by hand four
+   * times is where the arithmetic mistakes come from.
+   *
+   * The first share keeps the business and account already chosen. The rest
+   * are left blank on purpose — whose the other share is, is a decision, not
+   * something to guess.
+   */
+  function splitDebits(n, src) {
+    const out = []
+    for (const l of src) {
+      const amt = num(l.debit)
+      if (!amt) { out.push({ ...l }); continue }
+      const base = Math.floor(amt / n * 100) / 100
+      const short = Math.round((amt - base * n) * 100)
+      for (let k = 0; k < n; k++) {
+        out.push({
+          ...l,
+          debit: Number((base + (k < short ? 0.01 : 0)).toFixed(2)),
+          credit: '',
+          business: k === 0 ? l.business : '',
+          account: k === 0 ? l.account : '',
+          projects: k === 0 ? (l.projects || []) : [],
+          basis: k === 0 ? l.basis
+               : `Share ${k + 1} of ${n} — ${l.account ? l.account + ' ' : ''}pick the business and account`,
+        })
+      }
+    }
+    return out
+  }
+
+  function toggleSplit() {
+    setMsg(''); setErr('')
+    if (splitState === 0) {
+      const src = (lines || []).map(l => ({ ...l }))
+      setPreSplit(src); setLines(splitDebits(2, src)); setSplitState(2)
+      setMsg('Split into 2. Pick the business and account on the new lines.')
+    } else if (splitState === 2) {
+      setLines(splitDebits(4, preSplit)); setSplitState(4)
+      setMsg('Split into 4. Pick the business and account on the new lines.')
+    } else {
+      setLines(preSplit.map(l => ({ ...l }))); setPreSplit(null); setSplitState(0)
+      setMsg('Split undone.')
+    }
+  }
+
+  async function markReviewedOnly() {
+    setBusy('markrev'); setErr(''); setMsg('')
+    try {
+      const r = await rpc('bulk_mark_reviewed', {
+        p_ids: [txn.id],
+        p_note: txnNote.trim() || 'Payable already cleared by this payment.',
+      })
+      setMsg((r && r[0] && r[0].outcome) || 'Marked reviewed.')
+      if (onDone) onDone()
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
+  async function recordTransfer() {
+    if (!xferTo) { setErr('Pick the account on the other side first.'); return }
+    setBusy('xfer'); setErr(''); setMsg('')
+    try {
+      await rpc('record_transfer', { p_txn: txn.id, p_other_account: xferTo })
+      setMsg('Both sides recorded, and the matching charge on the other account is closed.')
+      setXferTo('')
+      await load()
+      if (onDone) onDone()
+    } catch (e) { setErr('Refused: ' + e.message) }
+    setBusy('')
+  }
+
+  async function holdForInvoice() {
+    setBusy('hold'); setErr(''); setMsg('')
+    try {
+      const r = await rpc('hold_for_invoice', {
+        p_txn: txn.id, p_note: txnNote.trim() || null,
+      })
+      setMsg(typeof r === 'string' ? r : 'Held — it will come back when an invoice is matched to it.')
+      if (onDone) onDone()
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
   async function save(markReviewed) {
     // Settling a payable is not a journal edit. Warn once, allow on a second press.
     if (apDebit && !apWarned) {
@@ -242,6 +341,31 @@ export default function TxnEditor({ txn, kind, onDone }) {
       {err && <div className="err">{err}</div>}
       {msg && <div className="note good">{msg}</div>}
 
+      {/* This payment has already settled its invoice. It is here because
+          belongs_in_invoice_queue() evicts an applied payment from queue 2 —
+          rightly, there is nothing left to assign — and nothing catches it
+          afterwards, so it lands in Allocate expenses. The expense was booked
+          against the INVOICE date. Coding it again would double the cost. */}
+      {applied && (
+        <div className="note bad" style={{ marginBottom: 8 }}>
+          <b>Already applied to an invoice — do not code this as an expense.</b>
+          <div style={{ marginTop: 3 }}>
+            Settles {applied.invoices || 'an invoice'}
+            {num(applied.settled_amount) ? ` · $${money(applied.settled_amount)}` : ''}.
+            {applied.entries
+              ? ` The payment side is ${applied.entries}.`
+              : ' The payment side has not been written yet.'}
+          </div>
+          {applied.entries && txn.status !== 'reviewed' && (
+            <div style={{ marginTop: 7 }}>
+              <button disabled={!!busy} onClick={markReviewedOnly}>
+                {busy === 'markrev' ? 'Marking…' : 'Mark reviewed — nothing more to post'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <Section title="Source documents" count={docCount} defaultOpen
                tone={/no file/.test(docCount) ? 'warn' : ''}>
         <DocumentList txnId={txn.id} onChanged={onDone} onCount={setDocCount} />
@@ -252,6 +376,40 @@ export default function TxnEditor({ txn, kind, onDone }) {
           <PayablesApply txn={txn} onDone={load} />
         </Section>
       )}
+
+      {/* Booked to payables here. Opens by itself when there is one: it is the
+          reason NOT to code this as an expense, so it cannot be behind a fold
+          you have to know to open. */}
+      {/* Rendered but hidden until it reports a vendor, because whether there
+          is one is only known once it has read. An empty fold header saying
+          "Booked to payables here" on a transaction with no payable behind it
+          would be a lie you have to open to disprove. */}
+      <div style={apBooked ? undefined : { display: 'none' }}>
+        <Section title="Booked to payables here" count={apBooked}
+                 key={'ap' + String(!!apBooked)} defaultOpen={!!apBooked}>
+          <ApBooked txnId={txn.id} onDone={onDone} onCount={setApBooked} />
+        </Section>
+      </div>
+
+      {/* The console keeps this outside the folds: it is the exit for a row
+          that should never have been in a coding queue at all, and burying
+          it inside Entry would mean opening Entry to say "this is not one". */}
+      <div className="bar" style={{ marginBottom: 8 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 560 }}>This is a transfer to</span>
+        <select value={xferTo} onChange={e => setXferTo(e.target.value)}
+                style={{ minWidth: 200 }}>
+          <option value="">— pick the other account —</option>
+          {bankAccounts.filter(a => a.id !== txn.account_id).map(a => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+        <button disabled={!xferTo || !!busy} onClick={recordTransfer}>
+          {busy === 'xfer' ? 'Recording…' : 'Record both sides'}
+        </button>
+        <span className="muted" style={{ fontSize: 11.5 }}>
+          Writes both ledgers and closes the matching charge on the other account.
+        </span>
+      </div>
 
       <Section title="The document, line by line" defaultOpen={false}>
         <ReceiptLines txnId={txn.id} />
@@ -401,11 +559,24 @@ export default function TxnEditor({ txn, kind, onDone }) {
                            onChange={e => setLine(i, 'credit', e.target.value)} />
                   </td>
                   <td style={{ fontSize: 11 }}>
-                    <select multiple value={l.projects || []} style={{ width: '100%', height: 44 }}
-                            onChange={e => setLine(i, 'projects',
-                              [...e.target.selectedOptions].map(o => o.value))}>
-                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    {/* Tick boxes, not a multi-select: a line can carry several
+                        projects, and a list where ctrl-click is the only way to
+                        pick a second one reads as "choose one". */}
+                    <div className="tickbox">
+                      {projects.length === 0 && <span className="muted">no active projects</span>}
+                      {projects.map(p => {
+                        const on = (l.projects || []).includes(p.id)
+                        return (
+                          <label key={p.id} className="tick">
+                            <input type="checkbox" checked={on}
+                                   onChange={() => setLine(i, 'projects',
+                                     on ? (l.projects || []).filter(x => x !== p.id)
+                                        : [...(l.projects || []), p.id])} />
+                            {p.name}
+                          </label>
+                        )
+                      })}
+                    </div>
                   </td>
                   <td>
                     {lines.length > 2 && (
@@ -419,6 +590,12 @@ export default function TxnEditor({ txn, kind, onDone }) {
 
           <div className="bar" style={{ margin: '8px 0 0' }}>
             <button onClick={() => setLines(ls => [...ls, blank()])}>Add a line</button>
+            <button onClick={toggleSplit} disabled={!(lines || []).some(l => num(l.debit))}
+                    title="Halves every debit line and leaves the credit alone — the card was charged once.">
+              {splitState === 0 ? 'Split the debits in 2'
+                : splitState === 2 ? 'Split into 4'
+                : 'Undo the split'}
+            </button>
             <button onClick={load}>Reset</button>
             <span style={{ flex: 1 }} />
             {Object.entries(perBiz).map(([b, v]) => (
@@ -433,6 +610,10 @@ export default function TxnEditor({ txn, kind, onDone }) {
               {busy === 'saverev' ? 'Saving…'
                 : apDebit && apWarned ? 'Save anyway — no invoice marked paid'
                 : 'Save and mark reviewed'}
+            </button>
+            <button disabled={!!busy} onClick={holdForInvoice}
+                    title="Posts nothing. Moves this to the waiting queue until an invoice is matched to it, then it comes back here.">
+              {busy === 'hold' ? 'Holding…' : 'Hold for the invoice'}
             </button>
           </div>
 

@@ -174,6 +174,12 @@ export default function ReviewQueue({ kind: fixedKind }) {
                         reviewed
                       </span>
                     )}
+                    {r.already_applied && (
+                      <span className="pill bad"
+                            title="This payment has already been applied to its invoice, and the expense was booked against the invoice date. Coding it here would double the cost.">
+                        applied
+                      </span>
+                    )}
                     {num(r.docs) > 0 && <span className="pill soft">{r.docs} doc</span>}
                     {r.statement_path && <DocLink path={r.statement_path} label="stmt" />}
                     {num(r.doc_stubs) > 0 && (

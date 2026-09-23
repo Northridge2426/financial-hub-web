@@ -41,7 +41,7 @@ export default function LedgerRec() {
     setGroups(null); setOpen(null); setErr('')
     try {
       const [sug, openLines] = await Promise.all([
-        rpc('ledger_rec_suggest', { p_gl: gl, p_from: from, p_to: to, p_window: Number(window) }),
+        rpc('web_ledger_rec_suggest', { p_gl: gl, p_from: from, p_to: to, p_window: Number(window) }),
         supabase.from('v_ledger_clearing')
           .select('line_id,entry_date,memo,debit,credit,net,txn_ref,jno,origin,reconciliation_id')
           .eq('gl_account_id', gl).is('reconciliation_id', null)

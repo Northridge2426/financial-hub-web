@@ -146,13 +146,16 @@ export default function App() {
     }
   }, [openMenu])
 
-  // A cheap end-to-end proof that the signed-in path reaches the database.
+  // queue_counts() is the canonical count for every review queue — the same
+  // function the queue itself is filtered by, so a badge can never disagree
+  // with what opening it shows. Refetched on each page change so the numbers
+  // fall as you work, rather than going stale until a reload.
   useEffect(() => {
     if (!session) return
     rpc('queue_counts')
-      .then(r => setCounts(r.find(x => x.k === 'allout')?.n ?? null))
+      .then(r => setCounts(Object.fromEntries(r.map(x => [x.k, Number(x.n) || 0]))))
       .catch(() => setCounts(null))
-  }, [session])
+  }, [session, pageKey])
 
   if (session === undefined) {
     return <div className="page"><div className="loading">Checking your session…</div></div>
@@ -167,7 +170,7 @@ export default function App() {
     <div className="shell">
       <div className="topbar">
         <h1>Financial Hub</h1>
-        {counts != null && <span className="pill">{counts} outstanding</span>}
+        {counts?.allout != null && <span className="pill">{counts.allout} outstanding</span>}
         <span className="spacer" />
         <span className="who">{session.user.email}</span>
         <button onClick={() => supabase.auth.signOut()}>Sign out</button>
@@ -195,13 +198,19 @@ export default function App() {
               </a>
               {openMenu === m.key && (
                 <div className="menu">
-                  {m.pages.map(p => (
-                    <div key={p.key}
-                         className={'mi' + (p.key === current.key ? ' on' : '')}
-                         onClick={() => pick(p.key)}>
-                      {p.label}
-                    </div>
-                  ))}
+                  {m.pages.map(p => {
+                    const n = counts?.[p.key]
+                    return (
+                      <div key={p.key}
+                           className={'mi' + (p.key === current.key ? ' on' : '')}
+                           onClick={() => pick(p.key)}>
+                        {p.label}
+                        {n != null && (
+                          <span className={'mic' + (n === 0 ? ' zero' : '')}>{n}</span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </span>
