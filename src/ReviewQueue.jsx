@@ -10,7 +10,6 @@ const num = v => Number(v) || 0
 
 /** The numbered queues, in the console's order and with its labels. */
 export const QUEUES = [
-  { k: 'invoices', label: '1 · Allocate invoices' },
   { k: 'docs',     label: '2 · Assign receipts to invoices' },
   { k: 'hold',     label: '3 · Transfers and payments' },
   { k: 'plain',    label: '4 · Allocate expenses' },
@@ -121,12 +120,6 @@ export default function ReviewQueue({ kind: fixedKind }) {
         <div className="note"><b>{note[0]}</b> — {note[1]}</div>
       )}
 
-      {kind === 'invoices' && (
-        <div className="note warn">
-          The invoice queue has its own pane in the console, with the document
-          viewer and the booking form. Not ported yet — use the console for this one.
-        </div>
-      )}
       {(kind === 'docpair' || kind === 'stmtrev') && (
         <div className="note warn">
           This queue has its own dedicated pane in the console. Not ported yet.

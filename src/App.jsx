@@ -5,6 +5,7 @@ import SignIn from './SignIn.jsx'
 import QuickReview from './QuickReview.jsx'
 import AllOutstanding from './AllOutstanding.jsx'
 import ReviewQueue from './ReviewQueue.jsx'
+import Invoices from './Invoices.jsx'
 import Transfers from './Transfers.jsx'
 
 import Overview from './Overview.jsx'
@@ -48,14 +49,18 @@ import Statements from './Statements.jsx'
  * `pages: null` means a flat tab rather than a menu, which is how Reminders and
  * Vs Sage behave in the console.
  *
- * The Review menu is partly built: Quick review and All outstanding are here.
- * The nine numbered allocation queues (1 Allocate invoices … 9 Reopen one)
- * share one pane with a detail editor in the console and are still to come.
+ * Queues 1 and 3 have their own panes, as they do in the console — booking an
+ * invoice and pairing a transfer are different jobs from coding an expense, and
+ * `web_review_queue` returns nothing for those kinds for exactly that reason.
+ * The rest share `ReviewQueue` with its detail editor.
+ *
+ * Queues 6 and 8 still fall through to ReviewQueue, which says so rather than
+ * showing a wrong list.
  */
 const MENUS = [
   { key: 'rev', label: 'Review', pages: [
     { key: 'quick',    label: '0 · Quick review',                  Component: QuickReview },
-    { key: 'invoices', label: '1 · Allocate invoices',             Component: () => <ReviewQueue kind="invoices" /> },
+    { key: 'invoices', label: '1 · Allocate invoices',             Component: Invoices },
     { key: 'docs',     label: '2 · Assign receipts to invoices',   Component: () => <ReviewQueue kind="docs" /> },
     { key: 'hold',     label: '3 · Transfers and payments',        Component: Transfers },
     { key: 'plain',    label: '4 · Allocate expenses',             Component: () => <ReviewQueue kind="plain" /> },

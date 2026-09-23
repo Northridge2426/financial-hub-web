@@ -16,7 +16,7 @@ const num = v => Number(v) || 0
  * A split changes the SHAPE of the list rather than one field, so it is read
  * back from the database rather than patched in the page.
  */
-export default function ReceiptLines({ txnId }) {
+export default function ReceiptLines({ txnId, receiptId }) {
   const [receipts, setReceipts] = useState(null)
   const [lines, setLines] = useState({})          // receipt_id -> rows
   const [accounts, setAccounts] = useState([])
@@ -43,11 +43,16 @@ export default function ReceiptLines({ txnId }) {
     } catch (e) { setErr(e.message) }
   }, [])
 
+  // Two ways in: every receipt on a transaction, or one named document. The
+  // invoice queue uses the second — an invoice has its item lines before any
+  // bank line exists to attach it to.
   const load = useCallback(async () => {
     setErr('')
-    const { data, error } = await supabase.from('v_receipt_stubs')
+    const qy = supabase.from('v_receipt_stubs')
       .select('receipt_id,doc_vendor,doc_date,doc_amount,doc_type,doc_reference')
-      .eq('transaction_id', txnId)
+    const { data, error } = await (receiptId
+      ? qy.eq('receipt_id', receiptId)
+      : qy.eq('transaction_id', txnId))
     if (error) { setErr(error.message); return }
 
     // storage_path is on receipts, not on the stub view.
@@ -59,7 +64,7 @@ export default function ReceiptLines({ txnId }) {
     }
     setReceipts((data || []).map(r => ({ ...r, storage_path: paths[r.receipt_id] || null })))
     for (const r of data || []) loadLines(r.receipt_id)
-  }, [txnId, loadLines])
+  }, [txnId, receiptId, loadLines])
 
   useEffect(() => { load() }, [load])
 
