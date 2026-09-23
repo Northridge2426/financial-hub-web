@@ -7,6 +7,7 @@ import PayablesApply from './PayablesApply.jsx'
 import DocumentList, { documentsCount } from './DocumentList.jsx'
 import Section from './Section.jsx'
 import ApBooked from './ApBooked.jsx'
+import ThisIsA from './ThisIsA.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
@@ -67,6 +68,7 @@ export default function TxnEditor({ txn, kind, onDone }) {
   const [docCount, setDocCount] = useState('')
   const [apBooked, setApBooked] = useState('')
   const [applied, setApplied] = useState(null)
+  const [openEntry, setOpenEntry] = useState(0)
   const [txnNote, setTxnNote] = useState('')
   const [bankAccounts, setBankAccounts] = useState([])
   const [xferTo, setXferTo] = useState('')
@@ -154,14 +156,31 @@ export default function TxnEditor({ txn, kind, onDone }) {
     setBusy('')
   }
 
+  /**
+   * A profile FILLS the grid — it does not post anything and it does not lock
+   * anything. The vehicle profile is usually fuel and sometimes maintenance,
+   * so the account it fills in is a starting point to be changed, and the
+   * project tags usually still have to go on by hand.
+   *
+   * Any project tags already on a line for the same business and account are
+   * carried across, since the profile has no opinion about projects and
+   * dropping them would be losing work the reader had already done.
+   */
   const applyPreview = () => {
+    const priorTags = {}
+    for (const l of lines || []) {
+      if ((l.projects || []).length) priorTags[`${l.business}|${l.account}`] = l.projects
+    }
     setLines((preview || []).map(l => ({
       business: l.business || '', account: l.gl_number || '',
       debit: num(l.debit) || '', credit: num(l.credit) || '', basis: l.memo || '',
-      projects: [],
+      projects: priorTags[`${l.business}|${l.gl_number}`] || [],
     })))
     setPreview(null); setProfile(''); setSeedSource('profile'); setApWarned(false)
-    setMsg('Applied to the draft. Check any account marked “not in this chart”.')
+    setOpenEntry(n => n + 1)
+    setMsg('Filled into the draft below — every field is still editable. '
+         + 'Change the accounts if this one was maintenance rather than fuel, '
+         + 'tick any projects, then save. Check anything marked “not in this chart”.')
   }
 
   const setLine = (i, k, v) => setLines(ls => ls.map((l, j) => j === i ? { ...l, [k]: v } : l))
@@ -391,6 +410,17 @@ export default function TxnEditor({ txn, kind, onDone }) {
         </Section>
       </div>
 
+      {/* With no document there is no per-document "This is a …", and the row
+          that most needs one is exactly that kind: T003913, an ATM deposit
+          with nothing attached, sitting in Allocate expenses. So the control
+          appears on its own when the documents fold has nothing in it. */}
+      {!docCount && (
+        <div style={{ marginBottom: 8 }}>
+          <ThisIsA txnId={txn.id} onDone={onDone}
+                   label="This is a" />
+        </div>
+      )}
+
       {/* The console keeps this outside the folds: it is the exit for a row
           that should never have been in a coding queue at all, and burying
           it inside Entry would mean opening Entry to say "this is not one". */}
@@ -490,9 +520,12 @@ export default function TxnEditor({ txn, kind, onDone }) {
             </tbody>
           </table>
           <div className="bar" style={{ margin: '8px 0 0' }}>
-            <button className="primary" onClick={applyPreview}>Apply to the draft</button>
+            <button className="primary" onClick={applyPreview}>Fill the draft with this</button>
             <button onClick={() => { setPreview(null); setProfile('') }}>Discard</button>
-            <span className="muted" style={{ fontSize: 12 }}>Nothing is saved until you press Save.</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              It only fills the grid — accounts, amounts and projects all stay editable,
+              and nothing is saved until you press Save.
+            </span>
           </div>
         </div>
       )}
@@ -500,7 +533,7 @@ export default function TxnEditor({ txn, kind, onDone }) {
       {/* ---- the draft, always seeded ---- */}
       {!lines && <div className="loading">Reading…</div>}
       {lines && (
-        <Section title="Entry" defaultOpen={!!opens.entry}
+        <Section title="Entry" defaultOpen={!!opens.entry} openSignal={openEntry}
                  tone={offBy.length ? 'warn' : ''}
                  count={lines.length
                    ? `${filled.length} line${filled.length === 1 ? '' : 's'}`

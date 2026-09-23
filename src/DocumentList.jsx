@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { supabase, rpc } from './supabase.js'
+import { rpc } from './supabase.js'
 import { money } from './format.js'
 import DocLink from './DocLink.jsx'
+import ThisIsA from './ThisIsA.jsx'
 
 const num = v => Number(v) || 0
 
@@ -17,20 +18,10 @@ const num = v => Number(v) || 0
  * Only documents attached to THIS transaction can be reclassified. One filed
  * against the journal entry belongs to that entry, not to this row.
  */
-const DOC_CLASSES = [
-  ['invoice',          'Invoice for allocation',         'Allocate invoices'],
-  ['receipt_expense',  'Receipt for allocation',         'Allocate expenses'],
-  ['apply_to_invoice', 'Receipt to apply to an invoice', 'Assign receipts to invoices'],
-  ['ap_statement',     'AP statement',                   'matches the invoice if it is here, otherwise Document matching'],
-  ['bank_statement',   'Bank or loan statement',         'leaves the review queues for the sweep to index'],
-]
 
 export default function DocumentList({ txnId, onChanged, onCount }) {
   const [docs, setDocs] = useState(null)
-  const [groups, setGroups] = useState([])
   const [err, setErr] = useState('')
-  const [msg, setMsg] = useState('')
-  const [busy, setBusy] = useState('')
 
   const load = useCallback(async () => {
     setErr('')
@@ -43,22 +34,6 @@ export default function DocumentList({ txnId, onChanged, onCount }) {
 
   useEffect(() => { setDocs(null); load() }, [load])
 
-  useEffect(() => {
-    supabase.from('vendor_routes').select('label').eq('active', true).eq('route', 'group')
-      .then(({ data }) => setGroups([...new Set((data || []).map(r => r.label))].sort()))
-  }, [])
-
-  async function classify(receiptId, as) {
-    if (!as) return
-    setBusy(receiptId); setErr(''); setMsg('')
-    try {
-      const res = await rpc('classify_document', { p_receipt: receiptId, p_as: as })
-      setMsg(typeof res === 'string' ? res : 'Classified.')
-      await load()
-      if (onChanged) onChanged()
-    } catch (e) { setErr(e.message) }
-    setBusy('')
-  }
 
   if (err && !docs) return <div className="err">{err}</div>
   if (!docs) return <div className="loading">Reading documents…</div>
@@ -67,7 +42,6 @@ export default function DocumentList({ txnId, onChanged, onCount }) {
   return (
     <div>
       {err && <div className="err">{err}</div>}
-      {msg && <div className="note good">{msg}</div>}
 
       <table>
         <tbody>
@@ -84,27 +58,9 @@ export default function DocumentList({ txnId, onChanged, onCount }) {
                 )}
 
                 {d.own_transaction && d.receipt_id && (
-                  <div className="bar" style={{ margin: '4px 0 0', padding: '5px 7px' }}>
-                    <span className="muted" style={{ fontSize: 12 }}>This is a</span>
-                    <select value={d.reviewer_class || ''} disabled={busy === d.receipt_id}
-                            onChange={e => classify(d.receipt_id, e.target.value)}
-                            style={{ maxWidth: 260 }}>
-                      <option value="">— leave as it is —</option>
-                      {DOC_CLASSES.map(([v, label, where]) => (
-                        <option key={v} value={v} title={where}>{label}</option>
-                      ))}
-                      {groups.length > 0 && (
-                        <optgroup label="Vendor groups">
-                          {groups.map(g => (
-                            <option key={g} value={g}>{g} (revenue/vendor group)</option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-                    <span className="muted" style={{ fontSize: 11.5 }}>
-                      Says what it is and moves it to the queue that handles it. Nothing is booked.
-                    </span>
-                  </div>
+                  <ThisIsA txnId={txnId} receiptId={d.receipt_id}
+                           value={d.reviewer_class}
+                           onDone={async () => { await load(); if (onChanged) onChanged() }} />
                 )}
               </td>
               <td style={{ width: 96 }} className="muted">{d.doc_date || ''}</td>
