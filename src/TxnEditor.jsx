@@ -265,6 +265,21 @@ export default function TxnEditor({ txn, kind, onDone }) {
     setBusy('')
   }
 
+  /**
+   * The other side of this pair is already settled, so this row needs no entry
+   * of its own — only the acknowledgement that it is finished. Posting a second
+   * entry here would double the movement.
+   */
+  async function settleAgainstPair() {
+    setBusy('pair'); setErr(''); setMsg('')
+    try {
+      const r = await rpc('settle_against_pair', { p_txn: txn.id })
+      setMsg(typeof r === 'string' ? r : 'Marked reviewed against its pair.')
+      if (onDone) onDone()
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
   async function recordTransfer() {
     if (!xferTo) { setErr('Pick the account on the other side first.'); return }
     setBusy('xfer'); setErr(''); setMsg('')
@@ -439,6 +454,12 @@ export default function TxnEditor({ txn, kind, onDone }) {
         <span className="muted" style={{ fontSize: 11.5 }}>
           Writes both ledgers and closes the matching charge on the other account.
         </span>
+        {txn.is_transfer && txn.status !== 'reviewed' && (
+          <button disabled={!!busy} onClick={settleAgainstPair}
+                  title="Its pair already carries the entry. This posts nothing — it only says this side is finished.">
+            {busy === 'pair' ? 'Settling…' : 'Its pair settles this'}
+          </button>
+        )}
       </div>
 
       <Section title="The document, line by line" defaultOpen={false}>

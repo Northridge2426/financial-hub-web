@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase } from './supabase.js'
+import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import DocLink from './DocLink.jsx'
 
@@ -18,6 +18,12 @@ export default function Payables() {
   const [rows, setRows] = useState(null)
   const [control, setControl] = useState([])
   const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [linking, setLinking] = useState(false)
+  const [payJno, setPayJno] = useState('')
+  const [invJno, setInvJno] = useState('')
+  const [allowDiff, setAllowDiff] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -52,6 +58,29 @@ export default function Payables() {
   const overdue = rows.filter(r => Number(r.days_overdue) > 0)
   const offBy = control.filter(c => Math.abs(Number(c.difference)) > 0.01)
 
+  /**
+   * Repair: a payment posted here and an invoice posted here that nobody joined.
+   *
+   * link_ap_payment has TWO overloads differing only by p_allow_difference, and
+   * PostgREST resolves by argument NAME — so omitting it is ambiguous, not
+   * defaulted. It is always sent.
+   */
+  async function link() {
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      const res = await rpc('link_ap_payment', {
+        p_payment_jno: payJno.trim(),
+        p_invoice_jno: invJno.trim(),
+        p_business: null,
+        p_allow_difference: allowDiff,
+      })
+      setMsg(typeof res === 'string' ? res : 'Linked.')
+      setPayJno(''); setInvJno(''); setAllowDiff(false); setLinking(false)
+      window.location.reload()
+    } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+
   return (
     <div className="page">
       <p className="hint">
@@ -71,6 +100,48 @@ export default function Payables() {
           <div className="l">entities off the control</div>
         </div>
       </div>
+
+      {msg && <div className="note good">{msg}</div>}
+      {err && <div className="err">{err}</div>}
+
+      <div className="bar">
+        <span className="muted" style={{ fontSize: 12 }}>
+          An invoice that is in fact paid, but whose payment entry nobody joined to it, sits here
+          forever.
+        </span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setLinking(l => !l)}>
+          {linking ? 'Cancel' : 'Link a payment to an invoice'}
+        </button>
+      </div>
+
+      {linking && (
+        <div className="card">
+          <h2>Join two entries that are already posted</h2>
+          <div className="bar" style={{ margin: 0 }}>
+            <label htmlFor="apPay">Payment entry</label>
+            <input id="apPay" value={payJno} placeholder="its journal number" style={{ width: 170 }}
+                   onChange={e => setPayJno(e.target.value)} />
+            <label htmlFor="apInv">settles invoice</label>
+            <input id="apInv" value={invJno} placeholder="its journal number" style={{ width: 170 }}
+                   onChange={e => setInvJno(e.target.value)} />
+            <label className="tick"
+                   title="Only if the payment and the invoice genuinely differ — a discount taken, a short payment. Otherwise a mismatch means one of the two numbers is wrong.">
+              <input type="checkbox" checked={allowDiff}
+                     onChange={e => setAllowDiff(e.target.checked)} />
+              The amounts differ, and that is correct
+            </label>
+            <button className="primary" disabled={!payJno.trim() || !invJno.trim() || busy}
+                    onClick={link}>
+              {busy ? 'Linking…' : 'Link them'}
+            </button>
+          </div>
+          <p className="hint" style={{ margin: '6px 0 0' }}>
+            This posts nothing. It stamps the settlement that marks the invoice paid — the stamp
+            both entries were missing.
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <table>

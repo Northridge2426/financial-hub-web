@@ -23,12 +23,36 @@ export default function Projects() {
   const [to, setTo] = useState(today())
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
+  const [newProj, setNewProj] = useState('')
+  const [newKind, setNewKind] = useState('other')
+  const [adding, setAdding] = useState(false)
+  const [msg, setMsg] = useState('')
   const entities = useEntities()
 
-  useEffect(() => {
+  const loadProjects = () =>
     supabase.from('projects').select('id,name').eq('active', true).order('name')
       .then(({ data }) => setProjects(data || []))
-  }, [])
+
+  useEffect(() => { loadProjects() }, [])
+
+  // create_project is idempotent by name — it returns `created: false` and the
+  // existing id rather than raising, so typing a name that already exists
+  // selects it instead of making a second project with the same name.
+  async function addProject() {
+    if (!newProj.trim()) return
+    setAdding(true); setErr(''); setMsg('')
+    try {
+      const r = await rpc('create_project', { p_name: newProj.trim(), p_kind: newKind })
+      const made = r && r[0]
+      setMsg(made && made.created === false
+        ? `"${made.name}" already existed — ticked it rather than making a second one.`
+        : `"${newProj.trim()}" created.`)
+      setNewProj('')
+      await loadProjects()
+      if (made && made.id) setPicked(p => p.includes(made.id) ? p : [...p, made.id])
+    } catch (e) { setErr(e.message) }
+    setAdding(false)
+  }
 
   useEffect(() => {
     setData(null); setErr('')
@@ -64,7 +88,22 @@ export default function Projects() {
         {picked.length > 0 && (
           <button onClick={() => setPicked([])}>Clear {picked.length} selected</button>
         )}
+        <span style={{ flex: 1 }} />
+        <input value={newProj} placeholder="A new project…" style={{ width: 200 }}
+               onChange={e => setNewProj(e.target.value)}
+               onKeyDown={e => { if (e.key === 'Enter') addProject() }} />
+        <select value={newKind} onChange={e => setNewKind(e.target.value)}>
+          <option value="other">other</option>
+          <option value="property">property</option>
+          <option value="job">job</option>
+        </select>
+        <button disabled={!newProj.trim() || adding} onClick={addProject}>
+          {adding ? 'Adding…' : 'Add'}
+        </button>
       </div>
+
+      {msg && <div className="note good">{msg}</div>}
+      {err && <div className="err">{err}</div>}
 
       <div className="card">
         <h2>Projects</h2>

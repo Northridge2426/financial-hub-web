@@ -14,9 +14,7 @@ export const QUEUES = [
   { k: 'hold',     label: '3 · Transfers and payments' },
   { k: 'plain',    label: '4 · Allocate expenses' },
   { k: 'apwait',   label: '5 · Waiting on documents' },
-  { k: 'docpair',  label: '6 · Document matching' },
   { k: 'reopened', label: '7 · Documents arrived after review' },
-  { k: 'stmtrev',  label: '8 · Statement only — review' },
   { k: 'reviewed', label: '9 · Reviewed — reopen one' },
 ]
 
@@ -120,11 +118,6 @@ export default function ReviewQueue({ kind: fixedKind }) {
         <div className="note"><b>{note[0]}</b> — {note[1]}</div>
       )}
 
-      {(kind === 'docpair' || kind === 'stmtrev') && (
-        <div className="note warn">
-          This queue has its own dedicated pane in the console. Not ported yet.
-        </div>
-      )}
 
       {err && <div className="err">{err}</div>}
       {!rows && !err && <div className="loading">Loading…</div>}

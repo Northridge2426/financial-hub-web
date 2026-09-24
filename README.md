@@ -109,6 +109,46 @@ remembered in `localStorage`.
 Pages are stored as *components*, not elements, so switching to one mounts it
 fresh and it refetches rather than showing figures read an hour ago.
 
+## Check this after adding ANY function call
+
+Four failure classes account for nearly every bug in this build. Each was
+reported as one broken page, fixed as one broken page, and reappeared
+elsewhere. Each was only closed by enumerating it across the whole database —
+and every sweep found instances nobody had hit yet, twice including code
+written the same day.
+
+Run all four against the functions the app calls. All four returned zero rows
+on 23 September 2026.
+
+1. **No EXECUTE.** A console-only function carries no grant to `authenticated`,
+   because nobody ever needed one.
+   `has_function_privilege('authenticated', oid, 'EXECUTE')`.
+2. **Invoker cannot reach what it calls.** A `SECURITY INVOKER` function whose
+   body calls a function the caller cannot execute. The grant on the front door
+   is not the question: `prosrc ~* '\m<blocked>\s*\('`.
+3. **Unqualified DELETE.** `prosrc ~* 'delete\s+from\s+[a-z_0-9]+\s*;'`.
+   `safeupdate` is a **session library** on `authenticator` — neither
+   `SECURITY DEFINER` nor setting `safeupdate.enabled` on the function gets
+   round it, both were tried. The statement itself must say `where true`. Only
+   ever apply this to a table the same function created as TEMP.
+4. **Ambiguous overload.** Two signatures whose named arguments the call site
+   does not distinguish. `link_ap_payment` is the trap: omitting
+   `p_allow_difference` is ambiguous, **not defaulted**.
+
+## Two rules this app broke and had to relearn
+
+- **Never rebuild a database rule in the browser.** Two front ends write to the
+  same live database; anything expressed twice will drift. A queue's WHERE
+  clause comes from `web_review_queue()`; the sign on a credit note comes from
+  `web_invoice_seed()`. This project has already lost eleven payments,
+  $17,247.77, to a queue rule that existed in two places.
+- **A guard belongs in a RAISE, not in a WHERE clause.** An `is_app_user()`
+  gate in a SQL function's WHERE returns an **empty list** to a caller who
+  fails it — indistinguishable from "there is nothing here". The same shape in
+  JavaScript, `.catch(() => setCounts(null))`, hid a timing-out `queue_counts`
+  for an entire push: the menu badges simply never appeared and looked
+  unbuilt. Every `web_*` function raises. Every catch surfaces its message.
+
 ## Things that bite when porting a pane
 
 - **Calls are by named argument.** The console writes `payments_due(30, null)`;

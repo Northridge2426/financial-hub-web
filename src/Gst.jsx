@@ -20,6 +20,9 @@ export default function Gst() {
   const [scope, setScope] = useState('ALL')
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState('')
+  const [tick, setTick] = useState(0)          // forces a reload after a write
 
   useEffect(() => {
     setData(null); setErr('')
@@ -30,7 +33,17 @@ export default function Gst() {
     ])
       .then(([summary, accounts, filings]) => setData({ summary, accounts, filings }))
       .catch(e => setErr(e.message))
-  }, [from, to, scope])
+  }, [from, to, scope, tick])
+
+  async function act(key, fn) {
+    setBusy(key); setErr(''); setMsg('')
+    try {
+      const res = await fn()
+      setMsg(typeof res === 'string' ? res : 'Done.')
+      setTick(t => t + 1)
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
 
   return (
     <div className="page">
@@ -38,6 +51,9 @@ export default function Gst() {
         GST collected against input tax credits, by entity, for the period. Businesses under one
         proprietor are added together — the filing is the proprietor's, not the business's.
       </p>
+
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="note good">{msg}</div>}
 
       <div className="bar">
         <label htmlFor="gsFrom">From</label>
@@ -146,9 +162,22 @@ export default function Gst() {
                       <td className="muted">{r.gl_number}</td>
                       <td>{r.gl_name}</td>
                       <td>
-                        <span className={'pill ' + (r.gst_status === 'taxable' ? 'soft' : 'hold')}>
-                          {r.gst_status}
-                        </span>
+                        {/* The status decides whether an account's amounts go into
+                            the return at all, so it is set here — next to the figure
+                            it changes — rather than on a settings screen. */}
+                        <select value={r.gst_status || ''} disabled={busy === r.gl_account_id}
+                                style={{ fontSize: 12 }}
+                                onChange={e => act(r.gl_account_id, () => rpc('set_gst_status', {
+                                  p_account: r.gl_account_id, p_status: e.target.value,
+                                }))}>
+                          <option value="taxable">taxable</option>
+                          <option value="exempt">exempt</option>
+                          <option value="zero_rated">zero rated</option>
+                          <option value="out_of_scope">out of scope</option>
+                          {r.gst_status && !['taxable','exempt','zero_rated','out_of_scope'].includes(r.gst_status) && (
+                            <option value={r.gst_status}>{r.gst_status}</option>
+                          )}
+                        </select>
                       </td>
                       <td className="money">{r.lines}</td>
                       <td className="money">{signed(r.amount)}</td>
@@ -172,6 +201,7 @@ export default function Gst() {
                       <th className="num">108 ITC</th>
                       <th className="num">Net</th>
                       <th style={{ width: 120 }}>Posted</th>
+                      <th style={{ width: 80 }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -188,6 +218,15 @@ export default function Gst() {
                           {f.posted_entities === f.total_entities
                             ? <span className="pill soft">all {f.total_entities}</span>
                             : <span className="pill hold">{f.posted_entities} of {f.total_entities}</span>}
+                        </td>
+                        <td>
+                          {f.posted_entities !== f.total_entities && (
+                            <button disabled={busy === f.id} style={{ padding: '1px 8px', fontSize: 11 }}
+                                    title="Raises the remittance payable in every entity that has not got one yet."
+                                    onClick={() => act(f.id, () => rpc('post_gst_filing', { p_filing: f.id }))}>
+                              {busy === f.id ? 'Posting…' : 'post it'}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

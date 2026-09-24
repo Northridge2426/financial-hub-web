@@ -20,6 +20,11 @@ export default function JournalEntry() {
   const [killing, setKilling] = useState(null)   // jno awaiting a reason
   const [killWhy, setKillWhy] = useState('')
   const [removing, setRemoving] = useState(false)
+  const [tagging, setTagging] = useState(null)        // jno awaiting projects
+  const [tagBiz, setTagBiz] = useState('')
+  const [tagAcct, setTagAcct] = useState('')
+  const [tagProjects, setTagProjects] = useState([])
+  const [projects, setProjects] = useState([])
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
 
@@ -44,6 +49,8 @@ export default function JournalEntry() {
       .select('business,number,name').eq('usable', true).eq('postable', true)
       .order('business').order('number')
       .then(({ data }) => setAccounts(data || []))
+    supabase.from('projects').select('id,name').eq('active', true).order('name')
+      .then(({ data }) => setProjects(data || []))
   }, [])
 
   const setLine = (i, k, v) =>
@@ -58,6 +65,26 @@ export default function JournalEntry() {
    * in a closed year, and anything without a reason. That is the right place
    * for the rule, so this is only the way to reach it.
    */
+  /**
+   * Project tags on an entry already posted.
+   *
+   * Tags are not part of the entry — they are labels on its lines, and adding
+   * one changes no figure and no account. That is why this is allowed on a
+   * posted entry at all, where editing the entry itself is not.
+   */
+  async function tagEntry(jno) {
+    setRemoving(true); setErr(''); setMsg('')
+    try {
+      const n = await rpc('tag_journal_entry_lines', {
+        p_jno: jno, p_business: tagBiz, p_account: tagAcct, p_projects: tagProjects,
+      })
+      setMsg(`${n} line${Number(n) === 1 ? '' : 's'} tagged on ${jno}.`)
+      setTagging(null); setTagProjects([])
+      await load()
+    } catch (e) { setErr(e.message) }
+    setRemoving(false)
+  }
+
   async function removeEntry(jno) {
     if (!killWhy.trim()) { setErr('Say why. A deleted entry with no reason is worse than a wrong one.'); return }
     setRemoving(true); setErr(''); setMsg('')
@@ -249,11 +276,55 @@ export default function JournalEntry() {
                     </td>
                     <td>
                       <button disabled={removing} style={{ padding: '1px 8px', fontSize: 11 }}
+                              title="Put project tags on this entry's lines. Changes no figure."
+                              onClick={() => { setTagging(tagging === r.jno ? null : r.jno); setTagProjects([]); setTagBiz(''); setTagAcct('') }}>
+                        {tagging === r.jno ? 'cancel' : 'tag'}
+                      </button>{' '}
+                      <button disabled={removing} style={{ padding: '1px 8px', fontSize: 11 }}
                               onClick={() => { setKilling(killing === r.jno ? null : r.jno); setKillWhy('') }}>
                         {killing === r.jno ? 'cancel' : 'remove'}
                       </button>
                     </td>
                   </tr>,
+                  tagging === r.jno && (
+                    <tr key={r.jno + '-tag'} className="expand">
+                      <td colSpan={9}>
+                        <div className="bar" style={{ margin: 0 }}>
+                          <span style={{ fontSize: 12.5 }}>On {r.jno}, tag the lines for</span>
+                          <select value={tagBiz} onChange={e => { setTagBiz(e.target.value); setTagAcct('') }}>
+                            <option value="">Entity…</option>
+                            {entities.map(b => <option key={b.code} value={b.code}>{b.code}</option>)}
+                          </select>
+                          <select value={tagAcct} disabled={!tagBiz} style={{ minWidth: 280 }}
+                                  onChange={e => setTagAcct(e.target.value)}>
+                            <option value="">Account…</option>
+                            {accounts.filter(a => a.business === tagBiz).map(a => (
+                              <option key={a.number} value={a.number}>{a.number} — {a.name}</option>
+                            ))}
+                          </select>
+                          <button className="primary"
+                                  disabled={!tagBiz || !tagAcct || tagProjects.length === 0 || removing}
+                                  onClick={() => tagEntry(r.jno)}>
+                            {removing ? 'Tagging…' : 'Tag them'}
+                          </button>
+                        </div>
+                        <div className="tickgrid" style={{ marginTop: 6 }}>
+                          {projects.map(p => (
+                            <label key={p.id} className="tick">
+                              <input type="checkbox" checked={tagProjects.includes(p.id)}
+                                     onChange={() => setTagProjects(t => t.includes(p.id)
+                                       ? t.filter(x => x !== p.id) : [...t, p.id])} />
+                              {p.name}
+                            </label>
+                          ))}
+                        </div>
+                        <p className="hint" style={{ margin: '4px 0 0' }}>
+                          Tags are labels on the lines, not part of the entry — no figure and no
+                          account changes, which is why this is allowed on something already posted.
+                        </p>
+                      </td>
+                    </tr>
+                  ),
                   killing === r.jno && (
                     <tr key={r.jno + '-kill'} className="expand">
                       <td colSpan={9}>

@@ -3,6 +3,7 @@ import { supabase, rpc } from './supabase.js'
 import { money, today } from './format.js'
 
 const num = v => Number(v) || 0
+const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
 
 /**
  * Transfers and payments — money moving between your own accounts, however the
@@ -219,7 +220,24 @@ export default function Transfers() {
                     <option value="one">The other side is an account I hold</option>
                     <option value="gl">It belongs on a general ledger account</option>
                     <option value="exp">Not a transfer — send it to the expense queues</option>
+                    <option value="pair">Pair it by hand with another leg below</option>
                   </select>
+
+                  {/* The matcher scores candidates; when it has not found one and
+                      you can see the other side yourself, this says so directly.
+                      Only legs on THIS list are offered — pairing against a row
+                      that already has a counterparty is what tp_accept is for. */}
+                  {c.mode === 'pair' && (
+                    <select value={c.target || ''} style={{ minWidth: 340 }}
+                            onChange={e => setChoiceFor(l.leg_id, { target: e.target.value })}>
+                      <option value="">The other side…</option>
+                      {legs.filter(x => x.leg_id !== l.leg_id).map(x => (
+                        <option key={x.leg_id} value={x.leg_id}>
+                          {x.leg_date} · {x.leg_account} · {signed(x.leg_amount)} · {String(x.leg_descr || '').slice(0, 40)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
 
                   {c.mode === 'one' && (
                     <select value={c.target || ''} style={{ minWidth: 240 }}
@@ -249,6 +267,8 @@ export default function Transfers() {
                               if (c.mode === 'gl') return rpc('tp_record_to_gl', {
                                 p_txn: l.leg_id, p_gl_account: c.target,
                                 p_note: 'Recorded to a GL account on the web console' })
+                              if (c.mode === 'pair') return rpc('pair_two_transfers', {
+                                p_a: l.leg_id, p_b: c.target })
                               return rpc('tp_send_to_expenses', {
                                 p_txn: l.leg_id, p_note: 'Not a transfer — sent back on the web console' })
                             })}>

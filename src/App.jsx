@@ -6,6 +6,8 @@ import QuickReview from './QuickReview.jsx'
 import AllOutstanding from './AllOutstanding.jsx'
 import ReviewQueue from './ReviewQueue.jsx'
 import Invoices from './Invoices.jsx'
+import DocumentMatching from './DocumentMatching.jsx'
+import StatementReview from './StatementReview.jsx'
 import Transfers from './Transfers.jsx'
 
 import Overview from './Overview.jsx'
@@ -13,6 +15,7 @@ import PaymentsDue from './PaymentsDue.jsx'
 import PaymentPriority from './PaymentPriority.jsx'
 import Recurring from './Recurring.jsx'
 import Provisionals from './Provisionals.jsx'
+import Proposals from './Proposals.jsx'
 
 import Payables from './Payables.jsx'
 import Vendors from './Vendors.jsx'
@@ -22,6 +25,7 @@ import LedgerRec from './LedgerRec.jsx'
 import GeneralJournal from './GeneralJournal.jsx'
 import JournalEntry from './JournalEntry.jsx'
 import Accounts from './Accounts.jsx'
+import Allocations from './Allocations.jsx'
 
 import Actuals from './Actuals.jsx'
 import BalanceSheet from './BalanceSheet.jsx'
@@ -54,8 +58,9 @@ import Statements from './Statements.jsx'
  * `web_review_queue` returns nothing for those kinds for exactly that reason.
  * The rest share `ReviewQueue` with its detail editor.
  *
- * Queues 6 and 8 still fall through to ReviewQueue, which says so rather than
- * showing a wrong list.
+ * Queues 6 and 8 have their own panes too — matching a document to a line and
+ * coding a run of statement charges are neither of them "open a transaction and
+ * write an entry", which is all ReviewQueue's editor does.
  */
 const MENUS = [
   { key: 'rev', label: 'Review', pages: [
@@ -65,9 +70,9 @@ const MENUS = [
     { key: 'hold',     label: '3 · Transfers and payments',        Component: Transfers },
     { key: 'plain',    label: '4 · Allocate expenses',             Component: () => <ReviewQueue kind="plain" /> },
     { key: 'apwait',   label: '5 · Waiting on documents',          Component: () => <ReviewQueue kind="apwait" /> },
-    { key: 'docpair',  label: '6 · Document matching',             Component: () => <ReviewQueue kind="docpair" /> },
+    { key: 'docpair',  label: '6 · Document matching',             Component: DocumentMatching },
     { key: 'reopened', label: '7 · Documents arrived after review', Component: () => <ReviewQueue kind="reopened" /> },
-    { key: 'stmtrev',  label: '8 · Statement only — review',       Component: () => <ReviewQueue kind="stmtrev" /> },
+    { key: 'stmtrev',  label: '8 · Statement only — review',       Component: StatementReview },
     { key: 'reviewed', label: '9 · Reviewed — reopen one',         Component: () => <ReviewQueue kind="reviewed" /> },
     { key: 'allout',   label: '★ All outstanding — everything uncoded', Component: AllOutstanding },
   ]},
@@ -77,6 +82,7 @@ const MENUS = [
     { key: 'payprio',   label: 'Payment prioritisation',     Component: PaymentPriority },
     { key: 'recurring', label: 'Recurring payments',         Component: Recurring },
     { key: 'prov',      label: 'Provisional entries',        Component: Provisionals },
+    { key: 'proposed',  label: 'Proposed entries — post or reject', Component: Proposals },
   ]},
   { key: 'ap', label: 'Payables', pages: [
     { key: 'payables', label: 'Outstanding payables', Component: Payables },
@@ -88,6 +94,7 @@ const MENUS = [
     { key: 'gj',        label: 'General journal',       Component: GeneralJournal },
     { key: 'je',        label: 'Journal entry',         Component: JournalEntry },
     { key: 'accounts',  label: 'Accounts',              Component: Accounts },
+    { key: 'alloc',     label: 'Saved allocations',     Component: Allocations },
   ]},
   { key: 'rp', label: 'Reports', pages: [
     { key: 'reports',  label: 'Actuals by account', Component: Actuals },

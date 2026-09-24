@@ -34,6 +34,10 @@ export default function Recurring() {
   const [showEx, setShowEx] = useState(false)
   const [raw, setRaw] = useState(null)
   const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState('')
+  const [tick, setTick] = useState(0)
+  const [setting, setSetting] = useState(null)   // stream awaiting an entity
   const entities = useEntities()
 
   useEffect(() => {
@@ -41,7 +45,7 @@ export default function Recurring() {
     rpc(view === 'detail' ? 'recurring_payments' : 'recurring_payments_condensed',
         { p_from: from, p_to: to })
       .then(setRaw).catch(e => setErr(e.message))
-  }, [from, to, view])
+  }, [from, to, view, tick])
 
   const months = useMemo(() => monthList(from.slice(0, 7), to.slice(0, 7)), [from, to])
 
@@ -84,6 +88,16 @@ export default function Recurring() {
   const colTotal = m => streams.reduce((a, s) => a + (s.cells[m]?.amt || 0), 0)
   const grand = streams.reduce((a, s) => a + s.total, 0)
 
+  async function act(key, fn) {
+    setBusy(key); setErr(''); setMsg('')
+    try {
+      const res = await fn()
+      setMsg(typeof res === 'string' ? res : 'Done.')
+      setTick(t => t + 1)
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
   return (
     <div className="page">
       <p className="hint">
@@ -92,6 +106,9 @@ export default function Recurring() {
         what to look at. Where an invoice is filed against a payment the invoice's date is used, so
         a bill paid late still counts in the month it was billed.
       </p>
+
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="note good">{msg}</div>}
 
       <div className="bar">
         <label htmlFor="rcFrom">From</label>
@@ -137,12 +154,13 @@ export default function Recurring() {
                   <th key={m} className="num" style={{ width: 82 }}>{m.slice(2)}</th>
                 ))}
                 <th className="num" style={{ width: 100 }}>Total</th>
+                <th style={{ width: 130 }} />
               </tr>
             </thead>
             <tbody>
               {streams.map(s => {
                 const mix = Object.keys(s.biz).sort()
-                return (
+                return [
                   <tr key={s.key} style={s.excluded ? { opacity: 0.5 } : undefined}>
                     <td>
                       <b>{s.vendor}</b>
@@ -171,13 +189,69 @@ export default function Recurring() {
                       )
                     })}
                     <td className="money"><b>{money(s.total)}</b></td>
-                  </tr>
-                )
+                    <td style={{ fontSize: 11 }}>
+                      {/* Excluding is per STREAM — this vendor on this account.
+                          The whole-vendor form is separate and much blunter, so
+                          it is offered under its own label rather than as a
+                          second meaning for the same button. */}
+                      <button disabled={busy === s.key} style={{ padding: '1px 7px', fontSize: 11 }}
+                              title={s.excluded
+                                ? 'Put this stream back in the report.'
+                                : 'Take this vendor-and-account out of the report. It stays in the ledger.'}
+                              onClick={() => act(s.key, () => rpc('set_recurring_exclusion', {
+                                p_stream_key: s.key, p_vendor: s.vendor,
+                                p_account: s.account, p_excluded: !s.excluded,
+                              }))}>
+                        {s.excluded ? 'include' : 'exclude'}
+                      </button>{' '}
+                      <button disabled={busy === s.key} style={{ padding: '1px 7px', fontSize: 11 }}
+                              title="Say which entity this bill belongs to, rather than letting the split rule decide."
+                              onClick={() => setSetting(setting === s.key ? null : s.key)}>
+                        entity
+                      </button>
+                    </td>
+                  </tr>,
+                  setting === s.key && (
+                    <tr key={s.key + '-e'} className="expand">
+                      <td colSpan={months.length + 4}>
+                        <div className="bar" style={{ margin: 0 }}>
+                          <span style={{ fontSize: 12.5 }}>
+                            {s.vendor} · {s.account} belongs to
+                          </span>
+                          {entities.map(b => (
+                            <button key={b.code} disabled={busy === s.key}
+                                    onClick={() => act(s.key, () => rpc('set_recurring_business', {
+                                      p_stream_key: s.key, p_vendor: s.vendor,
+                                      p_account: s.account, p_business: b.code,
+                                    })).then(() => setSetting(null))}>
+                              {b.code}
+                            </button>
+                          ))}
+                          <span style={{ flex: 1 }} />
+                          <button disabled={busy === s.key}
+                                  title="Every stream for this vendor, in this entity, out of the report at once."
+                                  onClick={() => act(s.key, () => rpc('set_recurring_exclusion_vendor', {
+                                    p_vendor: s.vendor,
+                                    p_business: Object.keys(s.biz).sort()[0] || null,
+                                    p_excluded: true,
+                                  })).then(() => setSetting(null))}>
+                            Exclude the whole vendor
+                          </button>
+                        </div>
+                        <p className="hint" style={{ margin: '4px 0 0' }}>
+                          Overriding the entity changes only how this report reads. It does not
+                          re-post anything — the ledger keeps whatever the entries actually say.
+                        </p>
+                      </td>
+                    </tr>
+                  ),
+                ]
               })}
               <tr className="total">
                 <td colSpan={2}>Total</td>
                 {months.map(m => <td key={m} className="money">{money(colTotal(m))}</td>)}
                 <td className="money">{money(grand)}</td>
+                <td />
               </tr>
             </tbody>
           </table>

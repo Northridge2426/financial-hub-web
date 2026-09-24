@@ -12,6 +12,10 @@ export default function Reminders() {
   const [err, setErr] = useState('')
   const [closing, setClosing] = useState(null)
   const [note, setNote] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState({ title: '', detail: '', category: 'general', waiting_on: 'william', priority: 50 })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
 
   const load = useCallback(async () => {
     setErr('')
@@ -46,8 +50,29 @@ export default function Reminders() {
   const cats = [...new Set(items.map(r => r.category))].sort()
   const late = data.outstanding.filter(r => Number(r.days_late) > 0)
 
+  async function addOne() {
+    if (!draft.title.trim()) return
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      const r = await rpc('add_reminder', {
+        p_title: draft.title.trim(),
+        p_detail: draft.detail.trim() || null,
+        p_category: draft.category,
+        p_waiting_on: draft.waiting_on,
+        p_priority: Number(draft.priority) || 50,
+      })
+      setMsg(typeof r === 'string' ? r : 'Added.')
+      setDraft({ title: '', detail: '', category: 'general', waiting_on: 'william', priority: 50 })
+      setAdding(false)
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+
   return (
     <div className="page">
+      {msg && <div className="note good">{msg}</div>}
+
       <div className="bar">
         <select value={who} onChange={e => setWho(e.target.value)}>
           <option value="">Everyone</option>
@@ -57,7 +82,49 @@ export default function Reminders() {
         <span className="muted" style={{ fontSize: 12 }}>
           {items.length} open · {live.length} counted from the data
         </span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setAdding(a => !a)}>{adding ? 'Cancel' : 'New reminder'}</button>
       </div>
+
+      {adding && (
+        <div className="card">
+          <h2>A new reminder</h2>
+          <div className="bar" style={{ margin: 0 }}>
+            <input value={draft.title} placeholder="What needs doing"
+                   style={{ flex: 1, minWidth: 260 }}
+                   onChange={e => setDraft({ ...draft, title: e.target.value })}
+                   onKeyDown={e => { if (e.key === 'Enter' && draft.title.trim()) addOne() }} />
+            <select value={draft.waiting_on}
+                    onChange={e => setDraft({ ...draft, waiting_on: e.target.value })}>
+              <option value="william">Mine</option>
+              <option value="claude">Claude's</option>
+              <option value="either">Either</option>
+            </select>
+            <select value={draft.category}
+                    onChange={e => setDraft({ ...draft, category: e.target.value })}>
+              <option value="general">general</option>
+              <option value="gst">gst</option>
+              <option value="bank">bank</option>
+              <option value="documents">documents</option>
+              <option value="ledger">ledger</option>
+            </select>
+            <label htmlFor="rmPri">Priority</label>
+            <input id="rmPri" type="number" min="1" max="99" value={draft.priority} style={{ width: 80 }}
+                   onChange={e => setDraft({ ...draft, priority: e.target.value })} />
+            <button className="primary" disabled={!draft.title.trim() || busy} onClick={addOne}>
+              {busy ? 'Adding…' : 'Add it'}
+            </button>
+          </div>
+          <input value={draft.detail} placeholder="Anything the title does not say"
+                 style={{ marginTop: 6 }}
+                 onChange={e => setDraft({ ...draft, detail: e.target.value })} />
+          <p className="hint" style={{ margin: '6px 0 0' }}>
+            This is an <b>item</b> — something a person has to do. The reminders counted from the
+            data below are computed and cannot be added or closed by hand; they go away when the
+            thing they are counting does.
+          </p>
+        </div>
+      )}
 
       {err && <div className="err">{err}</div>}
 
