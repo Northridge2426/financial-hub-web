@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import DateRange from './DateRange.jsx'
-import { supabase } from './supabase.js'
+import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 
 const num = v => Number(v) || 0
@@ -21,8 +21,12 @@ export default function AllOutstanding() {
   const [why, setWhy] = useState('')
   const [q, setQ] = useState('')
   const [range, setRange] = useState({ from: '', to: '' })
+  const [noting, setNoting] = useState(null)      // txn id being annotated
+  const [noteText, setNoteText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
 
-  useEffect(() => {
+  const load = () =>
     supabase.from('v_all_outstanding')
       .select('id,ref,txn_date,account,entity,amount,direction,descr,merchant,status,support_status,provisional,is_transfer,paired,has_statement,docs,docs_with_file,vendor_group,quick_rule,pair_ref,why,open_notes,last_note,last_reply')
       // queue_counts() counts this as `where not paired` — a row whose other
@@ -31,7 +35,8 @@ export default function AllOutstanding() {
       .eq('paired', false)
       .order('txn_date', { ascending: false })
       .then(({ data, error }) => error ? setErr(error.message) : setRows(data || []))
-  }, [])
+
+  useEffect(() => { load() }, [])
 
   const groups = useMemo(
     () => [...new Set((rows || []).map(r => r.vendor_group).filter(Boolean))].sort(), [rows])
@@ -39,6 +44,26 @@ export default function AllOutstanding() {
     () => [...new Set((rows || []).map(r => r.account).filter(Boolean))].sort(), [rows])
   const whys = useMemo(
     () => [...new Set((rows || []).map(r => r.why).filter(Boolean))].sort(), [rows])
+
+  /**
+   * A note is how a line gets worked without coding it here.
+   *
+   * All Outstanding is deliberately one long list rather than a queue — the
+   * question it answers is "what is left", not "what kind of problem is this".
+   * Writing a note is the action it needs: the 07:00 task picks the note up,
+   * does what it says and writes the answer back underneath.
+   */
+  async function addNote(id) {
+    if (!noteText.trim()) return
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      await rpc('add_transaction_note', { p_txn: id, p_note: noteText.trim() })
+      setMsg('Note saved — the morning task will work it and reply underneath.')
+      setNoting(null); setNoteText('')
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -105,13 +130,14 @@ export default function AllOutstanding() {
               <th className="num" style={{ width: 110 }}>Amount</th>
               <th style={{ width: 120 }}>Group</th>
               <th style={{ width: 230 }}>Why it is still here</th>
+              <th style={{ width: 70 }} />
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 && (
-              <tr><td colSpan={7} className="muted">Nothing matches those filters.</td></tr>
+              <tr><td colSpan={8} className="muted">Nothing matches those filters.</td></tr>
             )}
-            {shown.map(r => (
+            {shown.map(r => [
               <tr key={r.id}>
                 <td className="muted">{r.ref}</td>
                 <td>{r.txn_date}</td>
@@ -153,8 +179,37 @@ export default function AllOutstanding() {
                     {r.has_statement && <span className="pill">stmt</span>}
                   </div>
                 </td>
-              </tr>
-            ))}
+                <td style={{ fontSize: 11 }}>
+                  <button style={{ padding: '1px 8px', fontSize: 11 }}
+                          title="Say what should happen to this line. The 07:00 task works the note and writes the answer back underneath."
+                          onClick={() => { setNoting(noting === r.id ? null : r.id); setNoteText('') }}>
+                    {noting === r.id ? 'cancel' : num(r.open_notes) > 0 ? 'note +' : 'note'}
+                  </button>
+                </td>
+              </tr>,
+              noting === r.id && (
+                <tr key={r.id + '-n'} className="expand">
+                  <td colSpan={8}>
+                    <div className="bar" style={{ margin: 0 }}>
+                      <span style={{ fontSize: 12.5 }}>{r.ref} — what should happen to it?</span>
+                      <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                             placeholder="e.g. Code to PER Restaurant and tag project MT1"
+                             style={{ flex: 1, minWidth: 280 }} autoFocus
+                             onKeyDown={e => { if (e.key === 'Enter') addNote(r.id) }} />
+                      <button className="primary" disabled={!noteText.trim() || busy}
+                              onClick={() => addNote(r.id)}>
+                        {busy ? 'Saving…' : 'Leave the note'}
+                      </button>
+                    </div>
+                    <p className="hint" style={{ margin: '4px 0 0' }}>
+                      The note is an instruction, not a comment — the 07:00 task reads it, does
+                      what it says, and writes back underneath. It can be broader than this one
+                      line: "code all outstanding to this vendor" works.
+                    </p>
+                  </td>
+                </tr>
+              ),
+            ])}
           </tbody>
         </table>
       </div>
