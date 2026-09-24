@@ -84,9 +84,13 @@ export default function BankRecon() {
     return [...m.values()].sort((x, y) => (y.openPeriods - x.openPeriods) || x.account.localeCompare(y.account))
   }, [statements])
 
+  // Oldest first. A period is reconciled against the one before it — its
+  // opening balance is the previous closing — so working newest-first means
+  // finalising a period whose predecessor is still open, and any difference
+  // found later has nowhere to go.
   const forAccount = useMemo(
     () => (statements || []).filter(s => s.account === acct)
-                            .sort((a, z) => (z.period_end || '').localeCompare(a.period_end || '')),
+                            .sort((a, z) => (a.period_end || '').localeCompare(z.period_end || '')),
     [statements, acct])
 
   const doneCount = forAccount.filter(s => s.finalised).length
@@ -99,7 +103,12 @@ export default function BankRecon() {
     .reduce((a, r) => a + num(r.amount), 0)
   const selTotalGl = (glLines || []).filter(r => pickGl.includes(r.line_id))
     .reduce((a, r) => a + num(r.amount), 0)
-  const selBalanced = pickBank.length && pickGl.length &&
+  // `bank_rec_match` requires only that the two sides AGREE, and refuses an
+  // empty selection on both. With one side empty that side sums to zero, so a
+  // set on the other side that nets to zero is a valid match — a charge and its
+  // reversal on the statement with nothing in the ledger, or the reverse. That
+  // was always allowed in SQL; requiring both sides here was a UI invention.
+  const selBalanced = (pickBank.length > 0 || pickGl.length > 0) &&
     Math.abs(selTotalBank - selTotalGl) < 0.005
 
   return (
@@ -198,12 +207,14 @@ export default function BankRecon() {
                     p_statement: sid, p_gl: pickGl, p_txn: pickBank,
                     p_note: 'Matched on the web console',
                   }))}>
-            {busy === 'match' ? 'Matching…' : `Match ${pickBank.length} ↔ ${pickGl.length}`}
+            {busy === 'match' ? 'Matching…' : `Match ${pickGl.length} ledger ↔ ${pickBank.length} bank`}
           </button>
           {(pickBank.length > 0 || pickGl.length > 0) && (
             <span className={'muted ' + (selBalanced ? 'pos' : '')} style={{ fontSize: 12 }}>
-              {signed(selTotalBank)} vs {signed(selTotalGl)}
-              {!selBalanced && pickBank.length > 0 && pickGl.length > 0 && ' — not equal'}
+              ledger {signed(selTotalGl)} vs bank {signed(selTotalBank)}
+              {!selBalanced && (pickBank.length === 0 || pickGl.length === 0
+                ? ' — one side only, so it has to net to zero'
+                : ' — not equal')}
             </span>
           )}
           <span style={{ flex: 1 }} />
@@ -270,25 +281,24 @@ export default function BankRecon() {
       {bank && glLines && (
         <div className="twocol">
           <div className="card">
-            <h2>From the statement ({bankShown.length})</h2>
+            <h2>From the ledger ({glShown.length})</h2>
             <table>
               <tbody>
-                {bankShown.length === 0 && (
+                {glShown.length === 0 && (
                   <tr><td className="muted">Nothing open.</td></tr>
                 )}
-                {bankShown.map(r => (
-                  <tr key={r.txn_id} className={r.matched ? 'muted' : ''}>
+                {glShown.map(r => (
+                  <tr key={r.line_id} className={r.matched ? 'muted' : ''}>
                     <td style={{ width: 28 }}>
                       <input type="checkbox" disabled={r.matched}
-                             checked={pickBank.includes(r.txn_id)}
-                             onChange={() => toggle(setPickBank, r.txn_id)} />
+                             checked={pickGl.includes(r.line_id)}
+                             onChange={() => toggle(setPickGl, r.line_id)} />
                     </td>
-                    <td style={{ width: 92 }}>{r.txn_date}</td>
+                    <td style={{ width: 92 }}>{r.entry_date}</td>
                     <td style={{ width: 84 }} className="muted">{r.ref || ''}</td>
                     <td>
                       {r.descr}
-                      {r.carried_in && <span className="pill hold" title="From an earlier period.">carried in</span>}
-                      {!r.has_entry && <span className="pill hold">no entry</span>}
+                      {r.carried_in && <span className="pill hold">carried in</span>}
                     </td>
                     <td className="money" style={{ width: 110 }}>{signed(r.amount)}</td>
                     <td style={{ width: 62 }}>
@@ -308,24 +318,25 @@ export default function BankRecon() {
           </div>
 
           <div className="card">
-            <h2>From the ledger ({glShown.length})</h2>
+            <h2>From the statement ({bankShown.length})</h2>
             <table>
               <tbody>
-                {glShown.length === 0 && (
+                {bankShown.length === 0 && (
                   <tr><td className="muted">Nothing open.</td></tr>
                 )}
-                {glShown.map(r => (
-                  <tr key={r.line_id} className={r.matched ? 'muted' : ''}>
+                {bankShown.map(r => (
+                  <tr key={r.txn_id} className={r.matched ? 'muted' : ''}>
                     <td style={{ width: 28 }}>
                       <input type="checkbox" disabled={r.matched}
-                             checked={pickGl.includes(r.line_id)}
-                             onChange={() => toggle(setPickGl, r.line_id)} />
+                             checked={pickBank.includes(r.txn_id)}
+                             onChange={() => toggle(setPickBank, r.txn_id)} />
                     </td>
-                    <td style={{ width: 92 }}>{r.entry_date}</td>
+                    <td style={{ width: 92 }}>{r.txn_date}</td>
                     <td style={{ width: 84 }} className="muted">{r.ref || ''}</td>
                     <td>
                       {r.descr}
-                      {r.carried_in && <span className="pill hold">carried in</span>}
+                      {r.carried_in && <span className="pill hold" title="From an earlier period.">carried in</span>}
+                      {!r.has_entry && <span className="pill hold">no entry</span>}
                     </td>
                     <td className="money" style={{ width: 110 }}>{signed(r.amount)}</td>
                     <td style={{ width: 62 }}>

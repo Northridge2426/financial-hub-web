@@ -12,6 +12,19 @@ const num = v => Number(v) || 0
  * takes an array and why the running total against the payment amount is the
  * most important number on the screen.
  *
+ * Two paths, and the difference matters:
+ *
+ * - **Tick several → Apply.** `apply_payment_application` builds the entry from
+ *   `preview_payment_application` and REFUSES a transaction that already
+ *   carries one ("clear it first"). It is the right path for a payment being
+ *   coded for the first time across one or more invoices.
+ * - **"Just this one".** `apply_invoice` goes through `set_journal_override`,
+ *   which REPLACES whatever entry the transaction has — so it is the only way
+ *   to re-point a payment that is already coded at the invoice it settles. It
+ *   also attaches the invoice document to the paying transaction, refuses an
+ *   overpayment by name, and settles the lesser of the two amounts so a part
+ *   payment leaves the rest outstanding.
+ *
  * `invoice_candidates` scores what it thinks fits and says WHY. Everything else
  * still open is listed underneath, because the engine scores on vendor and date
  * and cannot know about a bill paid under another name.
@@ -63,6 +76,24 @@ export default function PayablesApply({ txn, onDone }) {
     setBusy('')
   }
 
+  /**
+   * One invoice, through the override path. Offered on every row because the
+   * multi-invoice path cannot touch a transaction that is already coded, and
+   * "this payment is already coded, but at the wrong thing" is a real and
+   * frequent case.
+   */
+  async function applyOne(receiptId, vendor) {
+    setBusy(receiptId); setErr(''); setMsg('')
+    try {
+      const lines = await rpc('apply_invoice', { p_txn: txn.id, p_receipt: receiptId })
+      setMsg(`Applied to ${vendor} — ${lines.length} line${lines.length === 1 ? '' : 's'} posted.`)
+      setPreview(null); setPicked([])
+      await load()
+      if (onDone) onDone()
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
   async function apply() {
     setBusy('apply'); setErr(''); setMsg('')
     try {
@@ -106,6 +137,7 @@ export default function PayablesApply({ txn, onDone }) {
               <th className="num" style={{ width: 110 }}>Balance</th>
               <th className="num" style={{ width: 60 }}>Score</th>
               <th style={{ width: 230 }}>Why</th>
+              <th style={{ width: 96 }} />
             </tr>
           </thead>
           <tbody>
@@ -123,6 +155,13 @@ export default function PayablesApply({ txn, onDone }) {
                   <span className={'pill ' + (num(c.score) >= 40 ? 'soft' : 'hold')}>{c.score}</span>
                 </td>
                 <td className="muted" style={{ fontSize: 11.5 }}>{c.why}</td>
+                <td>
+                  <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
+                          title="Apply just this invoice. Replaces whatever entry this payment already has — the only path that works on a payment already coded."
+                          onClick={() => applyOne(c.receipt_id, c.vendor)}>
+                    {busy === c.receipt_id ? 'applying…' : 'just this one'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -151,6 +190,13 @@ export default function PayablesApply({ txn, onDone }) {
                     <td style={{ width: 120 }} className="muted">{o.doc_reference}</td>
                     <td style={{ width: 96 }}>{o.doc_date}</td>
                     <td className="money" style={{ width: 110 }}>${money(o.balance)}</td>
+                    <td style={{ width: 96 }}>
+                      <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
+                              title="Apply just this invoice. Replaces whatever entry this payment already has."
+                              onClick={() => applyOne(o.receipt_id, o.doc_vendor)}>
+                        {busy === o.receipt_id ? 'applying…' : 'just this one'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
