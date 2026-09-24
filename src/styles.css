@@ -244,3 +244,9 @@ tr.rowsel td { background: #eef2ff; }
 .note.apbook table { font-size: 12px; }
 
 .pill.bad { background: #fef2f2; color: #991b1b; margin-left: 4px; }
+
+/* Vendor groups sit at the foot of the Review menu, under a rule. They are
+   queues like any other but their list comes from vendor_routes, so they are
+   built at render time rather than declared in MENUS. */
+.menu .mi.vg { color: #334155; }
+.menu .mi.vgfirst { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 8px; }

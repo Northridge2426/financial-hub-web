@@ -54,9 +54,16 @@ export default function ReviewQueue({ kind: fixedKind }) {
   useEffect(() => { if (fixedKind) setKind(fixedKind) }, [fixedKind])
 
   useEffect(() => {
-    supabase.from('v_all_outstanding').select('vendor_group')
-      .not('vendor_group', 'is', null)
-      .then(({ data }) => setGroups([...new Set((data || []).map(r => r.vendor_group))].sort()))
+    // The canonical list is `vendor_routes` where route = 'group' — the same
+    // source queue_counts() uses. Reading it from v_all_outstanding instead
+    // was wrong in BOTH directions: a group with nothing outstanding right now
+    // (Apple) disappeared from the picker, so it could not be opened to confirm
+    // it was empty; and four descriptors that are NOT routed as groups
+    // (Starlink, Stittco, Superior Propane, Midnight Petroleum) were offered as
+    // though they were, with no badge behind them.
+    supabase.from('vendor_routes').select('label')
+      .eq('active', true).eq('route', 'group')
+      .then(({ data }) => setGroups([...new Set((data || []).map(r => r.label))].sort()))
   }, [])
 
   const load = useCallback(async () => {

@@ -121,7 +121,24 @@ const ALL = MENUS.flatMap(m => m.pages ? m.pages.map(p => ({ ...p, menu: m })) :
   key: m.key, label: m.label, Component: m.Component, menu: m,
 }])
 
-const find = key => ALL.find(p => p.key === key) || ALL[0]
+/**
+ * A vendor group is a queue like any other, but the list of them lives in the
+ * database rather than in MENUS — so its pages are resolved here instead of
+ * being declared above. `web_review_queue` takes the same `vg:<label>` kind the
+ * badge key uses, so the menu item, the count and the pane all name the group
+ * exactly one way.
+ */
+const find = key => {
+  if (String(key).startsWith('vg:')) {
+    const label = key.slice(3)
+    return {
+      key, label: label + ' — vendor group',
+      Component: () => <ReviewQueue kind={key} />,
+      menu: MENUS[0],
+    }
+  }
+  return ALL.find(p => p.key === key) || ALL[0]
+}
 
 /** Remember where you were. localStorage can be empty or throw, so guard it. */
 const remembered = () => {
@@ -221,11 +238,18 @@ export default function App() {
               </a>
               {openMenu === m.key && (
                 <div className="menu">
-                  {m.pages.map(p => {
+                  {(m.key === 'rev'
+                    ? [...m.pages, ...Object.keys(counts || {})
+                        .filter(k => k.startsWith('vg:'))
+                        .sort()
+                        .map((k, i) => ({ key: k, label: k.slice(3), group: true, first: i === 0 }))]
+                    : m.pages
+                  ).map(p => {
                     const n = counts?.[p.key]
                     return (
                       <div key={p.key}
-                           className={'mi' + (p.key === current.key ? ' on' : '')}
+                           className={'mi' + (p.key === current.key ? ' on' : '')
+                             + (p.group ? ' vg' : '') + (p.first ? ' vgfirst' : '')}
                            onClick={() => pick(p.key)}>
                         {p.label}
                         {n != null && (

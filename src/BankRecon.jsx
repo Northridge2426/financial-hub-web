@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
+import TxnEditor from './TxnEditor.jsx'
 
 const num = v => Number(v) || 0
 const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
@@ -27,6 +28,8 @@ export default function BankRecon() {
   const [hideMatched, setHideMatched] = useState(true)
   const [acct, setAcct] = useState('')
   const [showDone, setShowDone] = useState(false)
+  const [coding, setCoding] = useState(null)      // txn_id open for editing
+  const [codingRow, setCodingRow] = useState(null)
 
   const loadStatements = useCallback(async () => {
     const { data, error } = await supabase.from('v_bank_rec_statements')
@@ -63,6 +66,24 @@ export default function BankRecon() {
       await Promise.all([loadSides(), loadStatements()])
     } catch (e) { setErr(e.message) }
     setBusy('')
+  }
+
+  /**
+   * Code a bank line without leaving the reconciliation.
+   *
+   * The alternative — a link into the review queues — loses the period you are
+   * halfway through, and the transaction may not be in that queue's current
+   * filter anyway. `web_txn_row` returns the row in exactly the shape the queue
+   * editor expects, so the same editor opens here.
+   */
+  async function openCoding(txnId) {
+    if (coding === txnId) { setCoding(null); setCodingRow(null); return }
+    setCoding(txnId); setCodingRow(null); setErr('')
+    try {
+      const r = await rpc('web_txn_row', { p_txn: txnId })
+      if (!r.length) { setErr('That line has no transaction behind it.'); setCoding(null); return }
+      setCodingRow(r[0])
+    } catch (e) { setErr(e.message); setCoding(null) }
   }
 
   async function runPreview() {
@@ -324,7 +345,7 @@ export default function BankRecon() {
                 {bankShown.length === 0 && (
                   <tr><td className="muted">Nothing open.</td></tr>
                 )}
-                {bankShown.map(r => (
+                {bankShown.map(r => [
                   <tr key={r.txn_id} className={r.matched ? 'muted' : ''}>
                     <td style={{ width: 28 }}>
                       <input type="checkbox" disabled={r.matched}
@@ -339,7 +360,14 @@ export default function BankRecon() {
                       {!r.has_entry && <span className="pill hold">no entry</span>}
                     </td>
                     <td className="money" style={{ width: 110 }}>{signed(r.amount)}</td>
-                    <td style={{ width: 62 }}>
+                    <td style={{ width: 118 }}>
+                      <button style={{ padding: '1px 8px', fontSize: 11 }}
+                              title={r.has_entry
+                                ? 'Open the entry behind this line and correct it, without leaving the reconciliation.'
+                                : 'Nothing is posted against this line yet. Code it here.'}
+                              onClick={() => openCoding(r.txn_id)}>
+                        {coding === r.txn_id ? 'close' : r.has_entry ? 'entry' : 'code'}
+                      </button>{' '}
                       {r.matched && r.match_id && (
                         <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
                                 title="Breaks this match and puts both sides back on the open lists. Posts nothing."
@@ -349,8 +377,19 @@ export default function BankRecon() {
                         </button>
                       )}
                     </td>
-                  </tr>
-                ))}
+                  </tr>,
+                  coding === r.txn_id && (
+                    <tr key={r.txn_id + '-code'} className="expand">
+                      <td colSpan={6}>
+                        {!codingRow && <div className="loading">Reading…</div>}
+                        {codingRow && (
+                          <TxnEditor txn={codingRow} kind="plain"
+                                     onDone={() => { loadSides(); loadStatements() }} />
+                        )}
+                      </td>
+                    </tr>
+                  ),
+                ])}
               </tbody>
             </table>
           </div>
