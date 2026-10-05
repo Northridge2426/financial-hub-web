@@ -250,3 +250,16 @@ tr.rowsel td { background: #eef2ff; }
    built at render time rather than declared in MENUS. */
 .menu .mi.vg { color: #334155; }
 .menu .mi.vgfirst { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 8px; }
+
+/* The project picker on a receipt line. A tick list in the cell made every row
+   as tall as the project list; this opens only when wanted. Positioned FIXED
+   from the trigger's rect — a table cell clips an absolute pop-up. */
+.projbtn { padding: 1px 8px; font-size: 11px; white-space: nowrap; }
+.pickveil { position: fixed; inset: 0; z-index: 60; }
+.projpick {
+  position: fixed; z-index: 61; min-width: 210px; max-height: 320px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 8px 10px;
+}
+.projpick .tick { font-size: 12.5px; gap: 6px; }
+.projpick .tick input { width: auto; padding: 0; }

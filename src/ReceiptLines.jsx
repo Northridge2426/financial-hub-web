@@ -32,6 +32,13 @@ export default function ReceiptLines({ txnId, receiptId }) {
   const [fxCur, setFxCur] = useState('USD')
   const [fxAmt, setFxAmt] = useState('')
   const [fxGst, setFxGst] = useState('')
+  // A line is coded by TWO fields and set_receipt_line needs both at once, so a
+  // half-made choice has to live here until it is complete. Without this the
+  // entity select called code() with a null account, which returned silently,
+  // and the account select stayed disabled waiting for an entity that could
+  // never be saved — neither field could go first.
+  const [pending, setPending] = useState({})     // line_id -> { business, account }
+  const [picker, setPicker] = useState(null)     // { line, rid, top, left }
   const entities = useEntities()
 
   useEffect(() => {
@@ -76,6 +83,19 @@ export default function ReceiptLines({ txnId, receiptId }) {
 
   useEffect(() => { load() }, [load])
 
+  /**
+   * Hold the half-made choice, and write only when the pair is complete.
+   * `set_receipt_line` takes a business AND an account; there is no way to
+   * save one on its own.
+   */
+  function choose(rid, line, patch) {
+    const next = { ...(pending[line.line_id] || {}), ...patch }
+    setPending(p => ({ ...p, [line.line_id]: next }))
+    const business = next.business ?? line.business
+    const account = next.account ?? line.gl_number
+    if (business && account) code(rid, line, business, account)
+  }
+
   async function code(rid, line, business, account) {
     if (!business || !account) return
     setBusy(line.line_id); setErr(''); setMsg('')
@@ -83,6 +103,7 @@ export default function ReceiptLines({ txnId, receiptId }) {
       await rpc('set_receipt_line', {
         p_line_id: line.line_id, p_business_code: business, p_account_number: account,
       })
+      setPending(p => { const n = { ...p }; delete n[line.line_id]; return n })
       await loadLines(rid)
     } catch (e) { setErr(e.message) }
     setBusy('')
@@ -189,6 +210,38 @@ export default function ReceiptLines({ txnId, receiptId }) {
 
   return (
     <div style={{ marginBottom: 8 }}>
+      {/* Positioned `fixed` from the button's own rect: a table cell clips an
+          absolutely-positioned pop-up, which is a trap this project has hit
+          before. One panel, moved, rather than one per row. */}
+      {picker && (
+        <>
+          <div className="pickveil" onClick={() => setPicker(null)} />
+          <div className="projpick" style={{ top: picker.top, left: picker.left }}>
+            {projects.length === 0 && <div className="muted">No active projects.</div>}
+            {projects.map(p => {
+              const on = (picker.line.project_ids || []).includes(p.id)
+              return (
+                <label key={p.id} className="tick">
+                  <input type="checkbox" checked={on}
+                         onChange={() => {
+                           const next = on
+                             ? (picker.line.project_ids || []).filter(x => x !== p.id)
+                             : [...(picker.line.project_ids || []), p.id]
+                           setLineProjects(picker.rid, picker.line, next)
+                           setPicker(pk => pk && ({ ...pk,
+                             line: { ...pk.line, project_ids: next } }))
+                         }} />
+                  {p.name}
+                </label>
+              )
+            })}
+            <div className="bar" style={{ margin: '6px 0 0', padding: 0 }}>
+              <button onClick={() => setPicker(null)}>Done</button>
+            </div>
+          </div>
+        </>
+      )}
+
       {err && <div className="err">{err}</div>}
       {msg && <div className="note good">{msg}</div>}
 
@@ -307,37 +360,44 @@ export default function ReceiptLines({ txnId, receiptId }) {
                         )}
                       </td>
                       <td>
-                        <select value={l.business || ''} disabled={busy === l.line_id}
-                                onChange={e => code(r.receipt_id, l, e.target.value, l.gl_number)}>
+                        <select disabled={busy === l.line_id}
+                                value={pending[l.line_id]?.business ?? l.business ?? ''}
+                                onChange={e => choose(r.receipt_id, l, { business: e.target.value })}>
                           <option value="">—</option>
                           {entities.map(b => <option key={b.code} value={b.code}>{b.code}</option>)}
                         </select>
                       </td>
                       <td>
-                        <select value={l.gl_number || ''} disabled={!l.business || busy === l.line_id}
-                                style={{ width: '100%' }}
-                                onChange={e => code(r.receipt_id, l, l.business, e.target.value)}>
+                        <select style={{ width: '100%' }}
+                                value={pending[l.line_id]?.account ?? l.gl_number ?? ''}
+                                disabled={!(pending[l.line_id]?.business ?? l.business) || busy === l.line_id}
+                                onChange={e => choose(r.receipt_id, l, { account: e.target.value })}>
                           <option value="">—</option>
-                          {accountsFor(l.business).map(a => (
+                          {accountsFor(pending[l.line_id]?.business ?? l.business).map(a => (
                             <option key={a.number} value={a.number}>{a.number} — {a.name}</option>
                           ))}
                         </select>
                       </td>
                       <td style={{ fontSize: 11 }}>
-                        <div className="tickbox">
-                          {projects.map(p => {
-                            const on = (l.project_ids || []).includes(p.id)
-                            return (
-                              <label key={p.id} className="tick">
-                                <input type="checkbox" checked={on} disabled={busy === l.line_id}
-                                       onChange={() => setLineProjects(r.receipt_id, l,
-                                         on ? (l.project_ids || []).filter(x => x !== p.id)
-                                            : [...(l.project_ids || []), p.id])} />
-                                {p.name}
-                              </label>
-                            )
-                          })}
-                        </div>
+                        {/* A tick list per row ran to the height of the project
+                            list on every one of nineteen lines. The picker opens
+                            only when it is wanted. */}
+                        <button className="projbtn" disabled={busy === l.line_id}
+                                title={(l.project_ids || []).length
+                                  ? projects.filter(p => (l.project_ids || []).includes(p.id))
+                                            .map(p => p.name).join(', ')
+                                  : 'No project on this line'}
+                                onClick={e => {
+                                  const b = e.currentTarget.getBoundingClientRect()
+                                  setPicker(picker && picker.lineId === l.line_id
+                                    ? null
+                                    : { lineId: l.line_id, rid: r.receipt_id, line: l,
+                                        top: b.bottom + 2, left: b.left })
+                                }}>
+                          {(l.project_ids || []).length
+                            ? `${(l.project_ids || []).length} project${(l.project_ids || []).length === 1 ? '' : 's'}`
+                            : 'projects'} <span className="caret">▾</span>
+                        </button>
                       </td>
                       <td style={{ fontSize: 11 }}>
                         <button disabled={!l.gl_number || busy === l.line_id}
