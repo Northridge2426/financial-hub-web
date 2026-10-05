@@ -49,6 +49,11 @@ export default function ReviewQueue({ kind: fixedKind }) {
   const [rows, setRows] = useState(null)
   const [err, setErr] = useState('')
   const [sel, setSel] = useState(null)
+  // Ticked rows, for "these are all transfers". A Set keyed by id, not an array
+  // of rows: the list reloads underneath and stale row objects would be wrong.
+  const [ticked, setTicked] = useState(() => new Set())
+  const [bulk, setBulk] = useState(false)
+  const [bulkOut, setBulkOut] = useState(null)
   const entities = useEntities()
 
   useEffect(() => { if (fixedKind) setKind(fixedKind) }, [fixedKind])
@@ -67,7 +72,7 @@ export default function ReviewQueue({ kind: fixedKind }) {
   }, [])
 
   const load = useCallback(async () => {
-    setRows(null); setErr(''); setSel(null)
+    setRows(null); setErr(''); setSel(null); setTicked(new Set())
     try {
       setRows(await rpc('web_review_queue', {
         p_kind: kind,
@@ -91,6 +96,31 @@ export default function ReviewQueue({ kind: fixedKind }) {
     : null), [kind])
 
   const total = (rows || []).reduce((a, r) => a + num(r.amount), 0)
+
+  function tick(id) {
+    setTicked(s => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
+    })
+  }
+
+  /**
+   * "These are transfers." Books nothing — it sets the flag on each and they
+   * leave this queue for Transfers and payments, where both sides get matched
+   * once both have arrived. web_mark_transfers answers per row, so a
+   * transaction that already carries an entry is refused on its own and named
+   * rather than failing the whole batch.
+   */
+  async function markTransfers() {
+    setBulk(true); setErr(''); setBulkOut(null)
+    try {
+      const out = await rpc('web_mark_transfers', { p_ids: [...ticked] })
+      setBulkOut(out || [])
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBulk(false)
+  }
 
   return (
     <div className="page">
@@ -132,11 +162,39 @@ export default function ReviewQueue({ kind: fixedKind }) {
         <div className="card"><div className="muted">Nothing matches.</div></div>
       )}
 
+      {/* Only ever shown when something is ticked, so it cannot be mistaken for
+          a filter. The count is the honest one — rows already carrying an entry
+          are refused by name below, not silently dropped from this number. */}
+      {ticked.size > 0 && (
+        <div className="bar" style={{ background: 'var(--sel, #f3f6ff)' }}>
+          <b>{ticked.size} ticked</b>
+          <button className="primary" disabled={bulk} onClick={markTransfers}>
+            {bulk ? 'Marking…' : `These ${ticked.size === 1 ? 'is a transfer' : 'are transfers'}`}
+          </button>
+          <button disabled={bulk} onClick={() => setTicked(new Set())}>clear</button>
+          <span className="muted" style={{ fontSize: 11.5 }}>
+            Books nothing. They leave this queue for Transfers and payments, where you
+            match both sides once both have arrived.
+          </span>
+        </div>
+      )}
+
+      {bulkOut && bulkOut.length > 0 && (
+        <div className="note">
+          {bulkOut.map((o, i) => (
+            <div key={i} style={{ fontSize: 12 }}>
+              <b>{o.ref}</b> — {o.outcome}
+            </div>
+          ))}
+        </div>
+      )}
+
       {rows && rows.length > 0 && (
         <div className="card">
           <table>
             <thead>
               <tr>
+                <th style={{ width: 28 }} />
                 <th style={{ width: 82 }}>Ref</th>
                 <th style={{ width: 92 }}>Date</th>
                 <th style={{ width: 56 }}>Biz</th>
@@ -151,6 +209,12 @@ export default function ReviewQueue({ kind: fixedKind }) {
               {rows.map(r => [
                 <tr key={r.id} className={'drill' + (sel === r.id ? ' rowsel' : '')}
                     onClick={() => setSel(sel === r.id ? null : r.id)}>
+                  {/* stopPropagation, or ticking would also open the editor */}
+                  <td onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={ticked.has(r.id)}
+                           onChange={() => tick(r.id)}
+                           title="Tick several, then say they are all transfers." />
+                  </td>
                   <td className="muted">{r.ref}</td>
                   <td>{r.txn_date}</td>
                   <td><span className="pill">{r.business}</span></td>
@@ -202,7 +266,7 @@ export default function ReviewQueue({ kind: fixedKind }) {
                 </tr>,
                 sel === r.id && (
                   <tr key={r.id + '-d'} className="expand">
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <TxnEditor txn={r} kind={kind} onDone={load} />
                     </td>
                   </tr>

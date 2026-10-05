@@ -294,6 +294,24 @@ export default function TxnEditor({ txn, kind, onDone }) {
     setBusy('')
   }
 
+  /**
+   * Say it is a transfer without saying where to. Books nothing: it sets the
+   * flag, the row leaves Allocate expenses for Transfers and payments, and the
+   * two sides get matched there once both have arrived. Often this is the only
+   * statement you can honestly make at the time — the other leg may still be
+   * on a statement you have not loaded.
+   */
+  async function markTransferOnly() {
+    setBusy('xferflag'); setErr(''); setMsg('')
+    try {
+      const res = await rpc('web_route_transaction', { p_txn: txn.id, p_as: 'transfer' })
+      setMsg(typeof res === 'string' ? res : 'Marked as a transfer.')
+      await load()
+      if (onDone) onDone()
+    } catch (e) { setErr('Refused: ' + e.message) }
+    setBusy('')
+  }
+
   async function holdForInvoice() {
     setBusy('hold'); setErr(''); setMsg('')
     try {
@@ -426,16 +444,16 @@ export default function TxnEditor({ txn, kind, onDone }) {
         </Section>
       </div>
 
-      {/* With no document there is no per-document "This is a …", and the row
-          that most needs one is exactly that kind: T003913, an ATM deposit
-          with nothing attached, sitting in Allocate expenses. So the control
-          appears on its own when the documents fold has nothing in it. */}
-      {!docCount && (
-        <div style={{ marginBottom: 8 }}>
-          <ThisIsA txnId={txn.id} onDone={onDone}
-                   label="This is a" />
-        </div>
-      )}
+      {/* This used to be hidden whenever the row had a document, on the theory
+          that the per-document "This is a …" in the documents fold covered it.
+          It does not: that control classifies the PIECE OF PAPER, while
+          "transfer or payment" is a fact about the TRANSACTION. A transfer
+          with a receipt attached therefore had no way to say so, and the only
+          transfer control on screen was the one below, which demands the other
+          account. Always shown now. */}
+      <div style={{ marginBottom: 8 }}>
+        <ThisIsA txnId={txn.id} onDone={onDone} label="This is a" />
+      </div>
 
       {/* The console keeps this outside the folds: it is the exit for a row
           that should never have been in a coding queue at all, and burying
@@ -455,6 +473,15 @@ export default function TxnEditor({ txn, kind, onDone }) {
         <span className="muted" style={{ fontSize: 11.5 }}>
           Writes both ledgers and closes the matching charge on the other account.
         </span>
+        {/* The destination is only needed to POST both sides now. Knowing it is
+            a transfer at all is a separate, smaller statement, and often the
+            only one you can make yet — the other side may not have arrived. */}
+        {!txn.is_transfer && (
+          <button disabled={!!busy} onClick={markTransferOnly}
+                  title="Sets the transfer flag and nothing else. The row leaves Allocate expenses for Transfers and payments, where you match both sides later.">
+            {busy === 'xferflag' ? 'Marking…' : "don't know yet — just queue it"}
+          </button>
+        )}
         {txn.is_transfer && txn.status !== 'reviewed' && (
           <button disabled={!!busy} onClick={settleAgainstPair}
                   title="Its pair already carries the entry. This posts nothing — it only says this side is finished.">
