@@ -49,26 +49,28 @@ export default function ReceiptLines({ txnId, receiptId }) {
     } catch (e) { setErr(e.message) }
   }, [])
 
-  // Two ways in: every receipt on a transaction, or one named document. The
-  // invoice queue uses the second — an invoice has its item lines before any
-  // bank line exists to attach it to.
+  /**
+   * Two ways in: every receipt on a transaction, or one named document. The
+   * invoice queue uses the second — an invoice has its item lines before any
+   * bank line exists to attach it to.
+   *
+   * Read `receipts` directly. This used to go through `v_receipt_stubs`, which
+   * is `storage_path is null AND file_sha256 is null` — the "recorded from an
+   * email, no file behind it" view. Every receipt that HAS a file was therefore
+   * excluded, which was all 257 of them: this editor showed nothing, anywhere,
+   * from the day it was ported. The view answers a different question and was
+   * filtered by receipt_id without anyone checking what it leaves out.
+   */
   const load = useCallback(async () => {
     setErr('')
-    const qy = supabase.from('v_receipt_stubs')
-      .select('receipt_id,doc_vendor,doc_date,doc_amount,doc_type,doc_reference')
+    const cols = 'receipt_id:id,doc_vendor,doc_date,doc_amount,doc_type,doc_reference,storage_path'
+    const qy = supabase.from('receipts').select(cols)
     const { data, error } = await (receiptId
-      ? qy.eq('receipt_id', receiptId)
+      ? qy.eq('id', receiptId)
       : qy.eq('transaction_id', txnId))
     if (error) { setErr(error.message); return }
 
-    // storage_path is on receipts, not on the stub view.
-    let paths = {}
-    if ((data || []).length) {
-      const { data: rs } = await supabase.from('receipts')
-        .select('id,storage_path').in('id', data.map(r => r.receipt_id))
-      paths = Object.fromEntries((rs || []).map(r => [r.id, r.storage_path]))
-    }
-    setReceipts((data || []).map(r => ({ ...r, storage_path: paths[r.receipt_id] || null })))
+    setReceipts(data || [])
     for (const r of data || []) loadLines(r.receipt_id)
   }, [txnId, receiptId, loadLines])
 
