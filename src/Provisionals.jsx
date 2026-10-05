@@ -41,18 +41,32 @@ export default function Provisionals() {
 
   useEffect(() => { setData(null); load() }, [load])
 
-  async function showMatches(r) {
-    if (openId === r.id) { setOpenId(null); return }
+  // web_provisional_candidates, not provisional_matches. The latter requires
+  // the amounts to agree within two cents, which is why a restaurant receipt
+  // never matched its card line: the tip is not on the receipt. The wider
+  // function also returns lines that took MORE by a plausible gratuity, and
+  // labels them. provisional_matches is left alone on purpose — the overnight
+  // sweep auto-adopts from it, so a gratuity match must not be visible there.
+  const [days, setDays] = useState(12)
+
+  async function showMatches(r, p_days = days) {
+    if (openId === r.id && p_days === days) { setOpenId(null); return }
     setOpenId(r.id); setMatches(null); setMatchErr('')
     try {
-      setMatches(await rpc('provisional_matches', { p_prov: r.id, p_days: 12 }))
+      setMatches(await rpc('web_provisional_candidates', { p_prov: r.id, p_days }))
     } catch (e) { setMatchErr(e.message) }
   }
 
-  async function adopt(provId, txnId) {
+  // Two different writes behind one button, chosen by what the row is: an
+  // exact match adopts as it always did; a gratuity match adds the difference
+  // to the document as its own line first, so the lines total what the bank
+  // actually took and the entry built from them balances.
+  async function adopt(provId, m) {
     setBusy(true); setMsg(''); setErr('')
     try {
-      const res = await rpc('adopt_provisional', { p_real: txnId, p_prov: provId })
+      const res = m.kind === 'gratuity'
+        ? await rpc('web_adopt_with_gratuity', { p_real: m.txn_id, p_prov: provId })
+        : await rpc('web_adopt_provisional',  { p_real: m.txn_id, p_prov: provId })
       setMsg(typeof res === 'string' ? res : 'Adopted.')
       setOpenId(null); setMatches(null)
       setData(null); await load()
@@ -113,12 +127,17 @@ export default function Provisionals() {
                     {num(r.lines) ? r.lines : <span className="muted">none</span>}
                   </td>
                   <td className="money">{r.age_days}d</td>
+                  {/* The button is ALWAYS offered. r.candidates counts exact
+                      matches only, so a receipt whose card line differs by a
+                      tip reported "no bank line yet" and gave you no way to
+                      look — which is exactly the case that needed looking at. */}
                   <td>
-                    {num(r.candidates) ? (
-                      <button className="primary" onClick={() => showMatches(r)}>
-                        {r.candidates} match{num(r.candidates) > 1 ? 'es' : ''}
-                      </button>
-                    ) : <span className="muted">no bank line yet</span>}
+                    <button className={num(r.candidates) ? 'primary' : ''}
+                            onClick={() => showMatches(r)}>
+                      {num(r.candidates)
+                        ? `${r.candidates} match${num(r.candidates) > 1 ? 'es' : ''}`
+                        : 'look for a match'}
+                    </button>
                   </td>
                 </tr>,
                 openId === r.id && (
@@ -127,12 +146,20 @@ export default function Provisionals() {
                       {matchErr && <div className="err">{matchErr}</div>}
                       {!matches && !matchErr && <div className="loading">Looking…</div>}
                       {matches && matches.length === 0 && (
-                        <div className="muted">Nothing close enough to offer.</div>
+                        <div className="muted">
+                          Nothing close enough to offer within {days} days.{' '}
+                          <button onClick={() => { setDays(45); showMatches(r, 45) }}>
+                            widen to 45 days
+                          </button>
+                        </div>
                       )}
                       {matches && matches.length > 0 && (
                         <>
                           <div className="muted" style={{ marginBottom: 4, fontSize: 12 }}>
-                            Adopting moves {r.ref} onto the bank line. Nothing else changes.
+                            Adopting moves {r.ref} onto the bank line. Nothing else changes —
+                            except on a gratuity match, which also adds the difference to the
+                            document as its own line, uncoded, so the lines add up to what the
+                            card took.
                           </div>
                           <table>
                             <thead>
@@ -152,7 +179,14 @@ export default function Provisionals() {
                                 <tr key={m.txn_id}>
                                   <td className="muted">{m.ref}</td>
                                   <td>{m.txn_date}</td>
-                                  <td>{m.descr}</td>
+                                  <td>
+                                    {m.descr}
+                                    {/* why is the function's own words, so the
+                                        reason shown is the reason it matched */}
+                                    {m.why && (
+                                      <div className="muted" style={{ fontSize: 11 }}>{m.why}</div>
+                                    )}
+                                  </td>
                                   <td style={{ fontSize: 12 }}>
                                     {m.account}
                                     {m.cross_account && (
@@ -161,13 +195,23 @@ export default function Provisionals() {
                                       </span>
                                     )}
                                   </td>
-                                  <td className="money">${money(m.amount)}</td>
+                                  <td className="money">
+                                    ${money(m.amount)}
+                                    {m.kind === 'gratuity' && (
+                                      <div className="due-soon" style={{ fontSize: 11 }}>
+                                        +${money(m.excess)} tip
+                                      </div>
+                                    )}
+                                  </td>
                                   <td className="money">{m.day_gap}d</td>
                                   <td className="money">{m.score}</td>
                                   <td>
                                     <button className="primary" disabled={busy}
-                                            onClick={() => adopt(r.id, m.txn_id)}>
-                                      {busy ? '…' : 'Adopt'}
+                                            title={m.kind === 'gratuity'
+                                              ? `Adds a ${money(m.excess)} gratuity line to the document, then adopts.`
+                                              : 'Moves everything onto the bank line.'}
+                                            onClick={() => adopt(r.id, m)}>
+                                      {busy ? '…' : m.kind === 'gratuity' ? 'Adopt + tip' : 'Adopt'}
                                     </button>
                                   </td>
                                 </tr>

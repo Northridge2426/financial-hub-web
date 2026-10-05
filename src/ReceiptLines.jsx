@@ -39,6 +39,8 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
   // never be saved — neither field could go first.
   const [pending, setPending] = useState({})     // line_id -> { business, account }
   const [picker, setPicker] = useState(null)     // { line, rid, top, left }
+  const [adding, setAdding] = useState(null)     // receipt gaining a line
+  const [newLine, setNewLine] = useState({ desc: '', amt: '' })
   const entities = useEntities()
 
   useEffect(() => {
@@ -140,6 +142,32 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
       onBuild(lines)
       setMsg(`Built ${lines.length} entry line${lines.length === 1 ? '' : 's'} from the document. `
            + 'Check it in Entry below, then save.')
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
+  /**
+   * Append a line to the document. The reason this exists is the gratuity: a
+   * restaurant receipt prints the meal, the card takes the meal plus the tip,
+   * and nothing on paper records the difference. web_lines_entry_check now
+   * refuses to build an entry whose lines do not add up to what the bank took,
+   * so there has to be a way to put the missing cost on the document.
+   *
+   * GST is zero and gst_bearing false: a tip is not consideration for a supply.
+   */
+  async function addLine(rid) {
+    setBusy('addline-' + rid); setErr(''); setMsg('')
+    try {
+      await rpc('web_add_receipt_line', {
+        p_receipt: rid,
+        p_description: newLine.desc.trim(),
+        p_amount: Number(newLine.amt),
+        p_gst: 0,
+        p_gst_bearing: false,
+      })
+      setAdding(null); setNewLine({ desc: '', amt: '' })
+      await loadLines(rid)
+      setMsg('Line added, uncoded. Code it with the others.')
     } catch (e) { setErr(e.message) }
     setBusy('')
   }
@@ -524,6 +552,41 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                   ])}
                 </tbody>
               </table>
+            )}
+
+            {/* A cost the printed receipt does not carry — a tip is the usual
+                one. The build refuses when the lines do not add up to what the
+                bank took, and this is how you close that gap. GST is left at
+                zero: a gratuity is not consideration for a supply, so putting
+                it on a tip would inflate the recoverable tax. */}
+            {rows && rows.length > 0 && (
+              <div className="bar" style={{ margin: '8px 0 0' }}>
+                {adding === r.receipt_id ? (
+                  <>
+                    <input placeholder="what it was (e.g. Gratuity)"
+                           value={newLine.desc} style={{ width: 240 }}
+                           onChange={e => setNewLine(n => ({ ...n, desc: e.target.value }))} />
+                    <input placeholder="amount" inputMode="decimal"
+                           value={newLine.amt} style={{ width: 90 }}
+                           onChange={e => setNewLine(n => ({ ...n, amt: e.target.value }))} />
+                    <button className="primary"
+                            disabled={!newLine.desc.trim() || !Number(newLine.amt)
+                                      || busy === 'addline-' + r.receipt_id}
+                            onClick={() => addLine(r.receipt_id)}>
+                      {busy === 'addline-' + r.receipt_id ? 'Adding…' : 'Add the line'}
+                    </button>
+                    <button onClick={() => { setAdding(null); setNewLine({ desc: '', amt: '' }) }}>
+                      Cancel
+                    </button>
+                    <span className="muted" style={{ fontSize: 11.5 }}>
+                      Added uncoded, with no GST. Code it with the others — fill down will
+                      put it on the same account.
+                    </span>
+                  </>
+                ) : (
+                  <button onClick={() => setAdding(r.receipt_id)}>add a line</button>
+                )}
+              </div>
             )}
 
             {rows && rows.length > 0 && onBuild && (
