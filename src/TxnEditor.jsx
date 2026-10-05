@@ -13,6 +13,7 @@ const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
 
 const SOURCE_LABEL = {
+  lines: 'the document, line by line',
   override:  'the entry already saved against this transaction',
   sage:      'the Sage entry it is reconciled to, exactly as booked',
   suggested: 'what the ledger has done with this vendor before',
@@ -463,7 +464,16 @@ export default function TxnEditor({ txn, kind, onDone }) {
       </div>
 
       <Section title="The document, line by line" defaultOpen={false}>
-        <ReceiptLines txnId={txn.id} />
+        <ReceiptLines
+          txnId={txn.id}
+          onBuild={built => { setLines(built.map(l => ({
+            business: l.business || '',
+            account: l.account || '',
+            debit: num(l.debit) || '',
+            credit: num(l.credit) || '',
+            basis: l.basis || '',
+            projects: l.project_ids || [],
+          }))); setSeedSource('lines'); setOpenEntry(n => n + 1) }} />
       </Section>
 
       {/* ---- notes: what the morning task reads ---- */}

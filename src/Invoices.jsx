@@ -322,7 +322,18 @@ export default function Invoices() {
                             {num(r.item_lines) > 0 && (
                               <Section title="The invoice, line by line"
                                        count={`${r.item_lines} item lines`} defaultOpen>
-                                <ReceiptLines txnId={null} receiptId={r.id} />
+                                <ReceiptLines
+                                  txnId={null} receiptId={r.id}
+                                  onBuild={built => setLines(built.map(l => ({
+                                    business: l.business || '',
+                                    account: l.account || '',
+                                    debit: num(l.debit) || '',
+                                    credit: num(l.credit) || '',
+                                    basis: l.basis || '',
+                                    role: l.role === 'gst' ? 'gst'
+                                        : l.role === 'payable' ? 'payable' : 'expense',
+                                    projects: l.project_ids || [],
+                                  })))} />
                               </Section>
                             )}
 

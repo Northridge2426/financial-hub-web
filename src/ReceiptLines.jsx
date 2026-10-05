@@ -16,7 +16,7 @@ const num = v => Number(v) || 0
  * A split changes the SHAPE of the list rather than one field, so it is read
  * back from the database rather than patched in the page.
  */
-export default function ReceiptLines({ txnId, receiptId }) {
+export default function ReceiptLines({ txnId, receiptId, onBuild }) {
   const [receipts, setReceipts] = useState(null)
   const [lines, setLines] = useState({})          // receipt_id -> rows
   const [accounts, setAccounts] = useState([])
@@ -109,13 +109,55 @@ export default function ReceiptLines({ txnId, receiptId }) {
     setBusy('')
   }
 
-  async function fillDown(rid, line) {
+  /**
+   * Fill down, twice over.
+   *
+   * An invoice arrives with its items GROUPED — toys, then treats, then food —
+   * so the real pattern is: code the first line, fill the lot, then part way
+   * down change a line and re-fill from there. The second fill has to OVERWRITE
+   * what the first one wrote, and `p_only_blank: true` could not: it found
+   * nothing blank and reported "filled 0".
+   *
+   * `onlyBlank` false is the same function with its other argument — the
+   * database always supported this; only the button did not offer it.
+   */
+  /**
+   * Roll the coded lines up into an entry.
+   *
+   * `web_lines_to_entry` does the grouping, the one-GST-line-per-business rule
+   * and the payable or card side — in SQL, because the console does the same
+   * thing in JavaScript and a second copy in React is how the two drift apart.
+   * It refuses an uncoded leaf or a split that no longer adds back, rather than
+   * quietly landing the cost on whoever paid.
+   */
+  async function build(rid) {
+    setBusy('build-' + rid); setErr(''); setMsg('')
+    try {
+      const lines = await rpc('web_lines_to_entry', {
+        p_receipt: rid, p_txn: txnId || null,
+      })
+      if (!lines.length) { setErr('Nothing to build — no coded lines on this document.'); setBusy(''); return }
+      onBuild(lines)
+      setMsg(`Built ${lines.length} entry line${lines.length === 1 ? '' : 's'} from the document. `
+           + 'Check it in Entry below, then save.')
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
+  async function fillDown(rid, line, onlyBlank = true) {
     setBusy(line.line_id); setErr(''); setMsg('')
     try {
-      const out = await rpc('fill_receipt_lines_down', { p_line: line.line_id, p_only_blank: true })
+      const out = await rpc('fill_receipt_lines_down', {
+        p_line: line.line_id, p_only_blank: onlyBlank,
+      })
       const r = (out && out[0]) || {}
-      setMsg(`Filled ${r.filled ?? 0} line${r.filled === 1 ? '' : 's'} with ${r.business} ${r.account}` +
-             (r.skipped ? `, skipped ${r.skipped} already coded.` : '.'))
+      const n = r.filled ?? 0
+      setMsg(n === 0
+        ? (onlyBlank
+            ? 'Nothing below this line is blank. Use "replace below" to overwrite the coding.'
+            : 'Nothing below this line to fill.')
+        : `${onlyBlank ? 'Filled' : 'Replaced'} ${n} line${n === 1 ? '' : 's'} with ${r.business} ${r.account}`
+          + (r.skipped ? `, skipped ${r.skipped}.` : '.'))
       await loadLines(rid)
     } catch (e) { setErr(e.message) }
     setBusy('')
@@ -401,9 +443,14 @@ export default function ReceiptLines({ txnId, receiptId }) {
                       </td>
                       <td style={{ fontSize: 11 }}>
                         <button disabled={!l.gl_number || busy === l.line_id}
-                                title="Copy this line's coding down onto every blank line below it."
-                                onClick={() => fillDown(r.receipt_id, l)}>
+                                title="Copy this line's coding onto every BLANK line below it. Lines already coded are left alone."
+                                onClick={() => fillDown(r.receipt_id, l, true)}>
                           fill down
+                        </button>{' '}
+                        <button disabled={!l.gl_number || busy === l.line_id}
+                                title="Copy this line's coding onto EVERY line below it, overwriting what is already there. For when the items change category part way down."
+                                onClick={() => fillDown(r.receipt_id, l, false)}>
+                          replace below
                         </button>{' '}
                         <button disabled={busy === l.line_id || !!l.parent_line_id}
                                 title="Divide this line between entities by percentage. Opening it again edits or undoes the split."
@@ -477,6 +524,20 @@ export default function ReceiptLines({ txnId, receiptId }) {
                   ])}
                 </tbody>
               </table>
+            )}
+
+            {rows && rows.length > 0 && onBuild && (
+              <div className="bar" style={{ margin: '8px 0 0' }}>
+                <button className="primary" disabled={busy === 'build-' + r.receipt_id}
+                        onClick={() => build(r.receipt_id)}>
+                  {busy === 'build-' + r.receipt_id
+                    ? 'Building…' : 'Build the entry from these lines'}
+                </button>
+                <span className="muted" style={{ fontSize: 11.5 }}>
+                  Groups the lines by entity and account, adds one GST line per entity, and puts
+                  the payable on the other side. Nothing is posted until you save the entry.
+                </span>
+              </div>
             )}
           </div>
         )
