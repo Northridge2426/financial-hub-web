@@ -3,6 +3,7 @@ import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import DocLink from './DocLink.jsx'
+import ProjectPicker from './ProjectPicker.jsx'
 
 const num = v => Number(v) || 0
 
@@ -174,16 +175,7 @@ export default function StatementReview() {
           {projects.length > 0 && (
             <div style={{ marginTop: 6 }}>
               <span className="muted" style={{ fontSize: 12 }}>Projects</span>
-              <div className="tickgrid" style={{ marginTop: 2 }}>
-                {projects.map(p => (
-                  <label key={p.id} className="tick">
-                    <input type="checkbox" checked={tags.includes(p.id)}
-                           onChange={() => setTags(t => t.includes(p.id)
-                             ? t.filter(x => x !== p.id) : [...t, p.id])} />
-                    {p.name}
-                  </label>
-                ))}
-              </div>
+              <ProjectPicker value={tags} projects={projects} onChange={setTags} />
             </div>
           )}
 

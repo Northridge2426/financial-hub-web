@@ -8,6 +8,7 @@ import DocumentList, { documentsCount } from './DocumentList.jsx'
 import Section from './Section.jsx'
 import ApBooked from './ApBooked.jsx'
 import ThisIsA from './ThisIsA.jsx'
+import ProjectPicker from './ProjectPicker.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
@@ -653,21 +654,8 @@ export default function TxnEditor({ txn, kind, onDone }) {
                     {/* Tick boxes, not a multi-select: a line can carry several
                         projects, and a list where ctrl-click is the only way to
                         pick a second one reads as "choose one". */}
-                    <div className="tickbox">
-                      {projects.length === 0 && <span className="muted">no active projects</span>}
-                      {projects.map(p => {
-                        const on = (l.projects || []).includes(p.id)
-                        return (
-                          <label key={p.id} className="tick">
-                            <input type="checkbox" checked={on}
-                                   onChange={() => setLine(i, 'projects',
-                                     on ? (l.projects || []).filter(x => x !== p.id)
-                                        : [...(l.projects || []), p.id])} />
-                            {p.name}
-                          </label>
-                        )
-                      })}
-                    </div>
+                    <ProjectPicker value={l.projects} projects={projects}
+                                   onChange={v => setLine(i, 'projects', v)} />
                   </td>
                   <td>
                     {lines.length > 2 && (

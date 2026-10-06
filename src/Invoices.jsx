@@ -5,6 +5,7 @@ import { useEntities } from './useEntities.js'
 import DocLink from './DocLink.jsx'
 import Section from './Section.jsx'
 import ReceiptLines from './ReceiptLines.jsx'
+import ProjectPicker from './ProjectPicker.jsx'
 
 const num = v => Number(v) || 0
 
@@ -393,20 +394,8 @@ export default function Invoices() {
                                     </td>
                                     <td style={{ fontSize: 11 }}>
                                       {l.role === 'expense' ? (
-                                        <div className="tickbox">
-                                          {projects.map(p => {
-                                            const on = (l.projects || []).includes(p.id)
-                                            return (
-                                              <label key={p.id} className="tick">
-                                                <input type="checkbox" checked={on}
-                                                       onChange={() => setLine(i, 'projects',
-                                                         on ? l.projects.filter(x => x !== p.id)
-                                                            : [...(l.projects || []), p.id])} />
-                                                {p.name}
-                                              </label>
-                                            )
-                                          })}
-                                        </div>
+                                        <ProjectPicker value={l.projects} projects={projects}
+                                                       onChange={v => setLine(i, 'projects', v)} />
                                       ) : <span className="muted">—</span>}
                                     </td>
                                     <td>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money, today } from './format.js'
 import { useEntities } from './useEntities.js'
+import ProjectPicker from './ProjectPicker.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', memo: '' })
@@ -308,15 +309,9 @@ export default function JournalEntry() {
                             {removing ? 'Tagging…' : 'Tag them'}
                           </button>
                         </div>
-                        <div className="tickgrid" style={{ marginTop: 6 }}>
-                          {projects.map(p => (
-                            <label key={p.id} className="tick">
-                              <input type="checkbox" checked={tagProjects.includes(p.id)}
-                                     onChange={() => setTagProjects(t => t.includes(p.id)
-                                       ? t.filter(x => x !== p.id) : [...t, p.id])} />
-                              {p.name}
-                            </label>
-                          ))}
+                        <div style={{ marginTop: 6 }}>
+                          <ProjectPicker value={tagProjects} projects={projects}
+                                         onChange={setTagProjects} />
                         </div>
                         <p className="hint" style={{ margin: '4px 0 0' }}>
                           Tags are labels on the lines, not part of the entry — no figure and no

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
+import ProjectPicker from './ProjectPicker.jsx'
 
 const num = v => Number(v) || 0
 
@@ -39,7 +40,6 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
   // never be saved — neither field could go first.
   const [pending, setPending] = useState({})     // line_id -> { business, account }
   const [picker, setPicker] = useState(null)     // { line, rid, top, left }
-  const [partPick, setPartPick] = useState(null) // which split part's projects are open
   const [adding, setAdding] = useState(null)     // receipt gaining a line
   const [newLine, setNewLine] = useState({ desc: '', amt: '' })
   const entities = useEntities()
@@ -210,7 +210,6 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
         projects: line.projects || [] },
       { business: '', pct: 50, account: '', projects: [] },
     ])
-    setPartPick(null)
   }
 
   /**
@@ -227,7 +226,7 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
         .map(p => ({ business: p.business, pct: num(p.pct), account: p.account || null,
                      projects: p.projects && p.projects.length ? p.projects : null }))
       const res = await rpc('set_split_parts', { p_line_id: line.line_id, p_parts: payload })
-      setSplitting(null); setParts([]); setPartPick(null)
+      setSplitting(null); setParts([])
       await loadLines(rid)          // the shape changed — read it back
       const uncoded = clear ? 0 : payload.filter(p => !p.account).length
       if (clear) setMsg('Split undone — back to one line.')
@@ -424,11 +423,11 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                     return [
                     <tr key={l.line_id}
                         className={isParent ? 'muted' : (!l.gl_number ? 'row-late' : '')}>
+                      {/* display_no is the reading label — 1, then 1a and 1b
+                          under it, then 2. line_no is still the stored
+                          identity and is what every function keys on. */}
                       <td className="muted">
-                        {l.line_no}
-                        {l.parent_line_id && (
-                          <div className="muted" title="Part of a split line.">↳</div>
-                        )}
+                        {l.display_no ?? l.line_no}
                       </td>
                       <td>
                         {l.description}
@@ -572,34 +571,11 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                                       bound to a saved line id — these parts do
                                       not exist yet. */}
                                   <td style={{ width: 190 }}>
-                                    <button className="projbtn"
-                                            onClick={() => setPartPick(x => x === i ? null : i)}>
-                                      {(p.projects || []).length
-                                        ? projects.filter(pr => (p.projects || []).includes(pr.id))
-                                            .map(pr => pr.name).join(', ')
-                                        : 'projects'}
-                                    </button>
-                                    {partPick === i && (
-                                      <div style={{ border: '1px solid var(--line,#ddd)', padding: 4,
-                                                    marginTop: 2, maxHeight: 150, overflowY: 'auto' }}>
-                                        {projects.map(pr => (
-                                          <label key={pr.id} style={{ display: 'block', fontSize: 12 }}>
-                                            <input type="checkbox"
-                                                   checked={(p.projects || []).includes(pr.id)}
-                                                   onChange={e => setParts(ps => ps.map((x, j) => {
-                                                     if (j !== i) return x
-                                                     const had = x.projects || []
-                                                     return { ...x, projects: e.target.checked
-                                                       ? [...had, pr.id]
-                                                       : had.filter(id => id !== pr.id) }
-                                                   }))} />
-                                            {' '}{pr.name}
-                                          </label>
-                                        ))}
-                                        <button style={{ marginTop: 4 }}
-                                                onClick={() => setPartPick(null)}>Done</button>
-                                      </div>
-                                    )}
+                                    <ProjectPicker
+                                      value={p.projects || []}
+                                      projects={projects}
+                                      onChange={v => setParts(ps => ps.map((x, j) =>
+                                        j === i ? { ...x, projects: v } : x))} />
                                   </td>
                                   <td style={{ width: 40 }}>
                                     {parts.length > 2 && (
@@ -619,7 +595,7 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                               {pctTotal.toFixed(2)}%
                             </span>
                             <span style={{ flex: 1 }} />
-                            <button onClick={() => { setSplitting(null); setParts([]); setPartPick(null) }}>Cancel</button>
+                            <button onClick={() => { setSplitting(null); setParts([]) }}>Cancel</button>
                             {num(l.split_pct) > 0 || rows.some(x => x.parent_line_id === l.line_id) ? (
                               <button disabled={busy === l.line_id}
                                       title="Removes the parts and puts the line back as it was."
