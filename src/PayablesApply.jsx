@@ -126,6 +126,41 @@ export default function PayablesApply({ txn, onDone, onPicked }) {
       {err && <div className="err">{err}</div>}
       {msg && <div className="note good">{msg}</div>}
 
+      {/* The action bar sits ABOVE the lists. It used to be underneath them, so
+          with the other open payables expanded you ticked a row at the top and
+          the only way to post it was off the bottom of the screen. */}
+      {picked.length > 0 && (
+        <>
+          <div className="bar" style={{ margin: '8px 0 0' }}>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {picked.length} selected · ${money(selected)} of ${money(payment)}
+            </span>
+            <span className={Math.abs(diff) < 0.005 ? 'pos' : 'due-soon'} style={{ fontSize: 12 }}>
+              {Math.abs(diff) < 0.005
+                ? 'settles the payment exactly'
+                : diff > 0
+                  ? `$${money(diff)} of the payment left over`
+                  : `$${money(-diff)} more than the payment`}
+            </span>
+            <span style={{ flex: 1 }} />
+            <button disabled={!!busy} onClick={doPreview}>
+              {busy === 'preview' ? 'Checking…' : 'Preview the entry'}
+            </button>
+            <button className="primary" disabled={!!busy} onClick={apply}>
+              {busy === 'apply' ? 'Applying…' : 'Apply and post'}
+            </button>
+          </div>
+
+          {Math.abs(diff) > 0.005 && (
+            <div className="note warn" style={{ marginTop: 8 }}>
+              The selected invoices do not add up to the payment. That is sometimes right — a part
+              payment, or a bill paid alongside something else — but check it is what you mean
+              before applying.
+            </div>
+          )}
+        </>
+      )}
+
       {cands.length === 0 && others.length === 0 && (
         <div className="muted" style={{ marginTop: 6 }}>No open payables to apply this to.</div>
       )}
@@ -211,43 +246,6 @@ export default function PayablesApply({ txn, onDone, onPicked }) {
             </table>
           )}
         </div>
-      )}
-
-      {picked.length > 0 && (
-        <>
-          <div className="bar" style={{ margin: '8px 0 0' }}>
-            <span className="muted" style={{ fontSize: 12 }}>
-              {picked.length} selected · ${money(selected)} of ${money(payment)}
-            </span>
-            <span className={Math.abs(diff) < 0.005 ? 'pos' : 'due-soon'} style={{ fontSize: 12 }}>
-              {Math.abs(diff) < 0.005
-                ? 'settles the payment exactly'
-                : diff > 0
-                  ? `$${money(diff)} of the payment left over`
-                  : `$${money(-diff)} more than the payment`}
-            </span>
-            <span style={{ flex: 1 }} />
-            {/* Apply used to appear only AFTER previewing, so a ticked payable
-                showed no way to post it and the obvious move was to go down to
-                the entry grid and "Save and mark reviewed" — which writes no
-                settles_receipt_id and leaves the payable outstanding. Both
-                actions belong here; preview stays, it is no longer a toll. */}
-            <button disabled={!!busy} onClick={doPreview}>
-              {busy === 'preview' ? 'Checking…' : 'Preview the entry'}
-            </button>
-            <button className="primary" disabled={!!busy} onClick={apply}>
-              {busy === 'apply' ? 'Applying…' : 'Apply and post'}
-            </button>
-          </div>
-
-          {Math.abs(diff) > 0.005 && (
-            <div className="note warn" style={{ marginTop: 8 }}>
-              The selected invoices do not add up to the payment. That is sometimes right — a part
-              payment, or a bill paid alongside something else — but check it is what you mean
-              before applying.
-            </div>
-          )}
-        </>
       )}
 
       {preview && (

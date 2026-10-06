@@ -280,6 +280,37 @@ export default function TxnEditor({ txn, kind, onDone }) {
   }
 
   /**
+   * A payment applied to its invoices is DONE: the entry is written, the invoice
+   * is stamped, each entity balances. This used to be wired to load(), which
+   * refreshes this editor and tells the queue nothing — so you pressed "just
+   * this one", got "4 lines posted", and the row sat there looking unprocessed.
+   * The only way to tell it had worked was to go and look at the ledger.
+   *
+   * So: mark it reviewed and let the parent drop the row. If the posting worked
+   * but the review flag did not, say exactly that and stay open — closing on a
+   * half-done state is how a transaction goes quiet with something still wrong.
+   */
+  async function applyFinished() {
+    try {
+      const r = await rpc('bulk_mark_reviewed', {
+        p_ids: [txn.id],
+        p_note: txnNote.trim() || 'Applied to its invoice from the web console.',
+      })
+      const outcome = (r && r[0] && r[0].outcome) || 'reviewed'
+      if (/skipped/i.test(outcome)) {
+        setErr(`Applied and posted, but not marked reviewed — ${outcome}.`)
+        await load()
+        return
+      }
+    } catch (e) {
+      setErr('Applied and posted, but not marked reviewed — ' + e.message)
+      await load()
+      return
+    }
+    if (onDone) onDone()
+  }
+
+  /**
    * The other side of this pair is already settled, so this row needs no entry
    * of its own — only the acknowledgement that it is finished. Posting a second
    * entry here would double the movement.
@@ -453,7 +484,7 @@ export default function TxnEditor({ txn, kind, onDone }) {
 
       {txn.direction === 'outflow' && (
         <Section title="Apply this payment to invoices" defaultOpen={!!opens.pay}>
-          <PayablesApply txn={txn} onDone={load} onPicked={setPayablesPicked} />
+          <PayablesApply txn={txn} onDone={applyFinished} onPicked={setPayablesPicked} />
         </Section>
       )}
 
