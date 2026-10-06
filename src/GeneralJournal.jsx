@@ -6,10 +6,28 @@ import { useEntities } from './useEntities.js'
 const PAGE = 300
 const COLS = 'business,entry_no,entry_date,source,reference,sage_entry,narrative,total,lines,detail,ledger_entry_id'
 
-/** "t1471", "1471", "T001471" all mean the same transaction. */
-const toRef = s => {
-  const digits = s.replace(/^t/i, '').replace(/\D/g, '')
-  return digits ? 'T' + digits.padStart(6, '0') : null
+/**
+ * What did you just type?
+ *
+ * The box used to assume everything was a transaction: it stripped the letters
+ * and padded the digits, so "PJ0005" became "T000005" — a real but completely
+ * unrelated transaction — and the entry you were looking for was reported as
+ * not found. A journal number, an adjustment number and an AP number are all
+ * references a person reasonably types here.
+ *
+ *   T000123 / t123 / 123  -> a transaction, looked up in transactions.ref
+ *   PJ0005 / GJ12 / SJ7   -> a journal entry, matched on sage_entry
+ *   ADJ-2026-0007         -> an adjustment, matched on reference
+ *   AP-2026-0252          -> a payable, matched on reference
+ */
+const classify = s => {
+  const t = s.trim()
+  if (!t) return null
+  if (/^(adj|ap)[-\s]?\d/i.test(t)) return { kind: 'reference', value: t.toUpperCase() }
+  // two or more letters then digits is an entry number, not a transaction
+  if (/^[a-z]{2,}\s?\d+$/i.test(t)) return { kind: 'entry', value: t.toUpperCase().replace(/\s/g, '') }
+  const digits = t.replace(/^t/i, '').replace(/\D/g, '')
+  return digits ? { kind: 'txn', value: 'T' + digits.padStart(6, '0') } : null
 }
 
 export default function GeneralJournal() {
@@ -27,7 +45,7 @@ export default function GeneralJournal() {
   const [err, setErr] = useState('')
   const entities = useEntities()
 
-  const wanted = refs.split(/[\s,]+/).map(toRef).filter(Boolean)
+  const wanted = refs.split(/[,]+/).flatMap(s => s.split(/\s+/)).map(classify).filter(Boolean)
   const searching = wanted.length > 0
   const filterKey = JSON.stringify([biz, source, from, to, wanted])
 
@@ -37,10 +55,16 @@ export default function GeneralJournal() {
     const handle = setTimeout(run, 250)   // debounce the reference box
     return () => clearTimeout(handle)
 
-    /** Resolve typed references to transaction ids. Null means "no filter". */
+    /**
+     * Resolve the typed references. Null means "no filter".
+     * Transaction refs have to become ids first; entry and document numbers
+     * are matched on the view's own columns.
+     */
     async function txnIds() {
       if (!searching) return null
-      const { data, error } = await supabase.from('transactions').select('id').in('ref', wanted)
+      const txns = wanted.filter(w => w.kind === 'txn').map(w => w.value)
+      if (!txns.length) return []
+      const { data, error } = await supabase.from('transactions').select('id').in('ref', txns)
       if (error) throw new Error(error.message)
       return (data || []).map(t => t.id)
     }
@@ -48,10 +72,17 @@ export default function GeneralJournal() {
     function applyFilters(qy, ids) {
       if (biz) qy = qy.eq('business', biz)
       if (source) qy = qy.eq('source', source)
-      if (ids) {
+      if (searching) {
         // A reference search must not be silently narrowed by the date range —
-        // you asked about that transaction, not about that window.
-        qy = qy.in('transaction_id', ids)
+        // you asked about that entry, not about that window.
+        const entries = wanted.filter(w => w.kind === 'entry').map(w => w.value)
+        const docs    = wanted.filter(w => w.kind === 'reference').map(w => w.value)
+        const ors = []
+        if (ids.length)      ors.push(`transaction_id.in.(${ids.join(',')})`)
+        if (entries.length)  ors.push(`sage_entry.in.(${entries.join(',')})`)
+        if (docs.length)     ors.push(`reference.in.(${docs.join(',')})`)
+        // nothing resolvable: match nothing rather than everything
+        qy = ors.length ? qy.or(ors.join(',')) : qy.eq('entry_no', -1)
       } else {
         if (from) qy = qy.gte('entry_date', from)
         if (to) qy = qy.lte('entry_date', to)
@@ -63,10 +94,11 @@ export default function GeneralJournal() {
       if (page === 0) { setRows(null); setBreakdown(null) }
       setErr(''); setBusy(true)
       try {
+        // No early exit on an empty id list any more: "PJ0005" resolves to no
+        // TRANSACTION and used to stop here, which is why a journal number
+        // reported nothing found while its entry sat on the page. applyFilters
+        // decides — it matches nothing only when nothing at all resolved.
         const ids = await txnIds()
-        if (ids && !ids.length) {
-          setRows([]); setTotal(0); setBreakdown({}); setBusy(false); return
-        }
 
         const { data, error, count } = await applyFilters(
           supabase.from('v_general_journal_entries').select(COLS, { count: 'exact' }), ids)
