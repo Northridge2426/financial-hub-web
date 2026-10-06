@@ -1,7 +1,100 @@
 import { useEffect, useState } from 'react'
-import { supabase } from './supabase.js'
+import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
+import DocLink from './DocLink.jsx'
+
+/**
+ * One entry opened up: its coding as rows, and whatever paperwork supports it.
+ *
+ * The list's `detail` column is every line joined with "·", which reads well
+ * for a two-line entry and not at all for a ten-line one. Same lines, columns.
+ */
+function EntryDetail({ id }) {
+  const [lines, setLines] = useState(null)
+  const [docs, setDocs] = useState(null)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    let live = true
+    setLines(null); setDocs(null); setErr('')
+    Promise.all([
+      rpc('web_journal_entry_lines', { p_ledger_entry: id }),
+      rpc('web_journal_entry_docs', { p_ledger_entry: id }),
+    ])
+      .then(([l, d]) => { if (live) { setLines(l || []); setDocs(d || []) } })
+      .catch(e => { if (live) setErr(e.message) })
+    return () => { live = false }
+  }, [id])
+
+  if (err) return <div className="err">{err}</div>
+  if (!lines) return <div className="loading">Opening…</div>
+
+  const dr = lines.reduce((a, l) => a + Number(l.debit || 0), 0)
+  const cr = lines.reduce((a, l) => a + Number(l.credit || 0), 0)
+
+  return (
+    <div>
+      <table>
+        <thead>
+          <tr>
+            <th style={{ width: 34 }} />
+            <th style={{ width: 54 }}>Biz</th>
+            <th style={{ width: 70 }}>Acct</th>
+            <th>Account</th>
+            <th>Memo</th>
+            <th style={{ width: 120 }}>Project</th>
+            <th className="num" style={{ width: 110 }}>Debit</th>
+            <th className="num" style={{ width: 110 }}>Credit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={i}>
+              <td className="muted">{l.line_no}</td>
+              <td><span className="pill">{l.business}</span></td>
+              <td className="muted">{l.gl_number}</td>
+              <td>{l.gl_name}</td>
+              <td style={{ fontSize: 12 }}>{l.memo}</td>
+              <td style={{ fontSize: 12 }}>
+                {l.project || <span className="muted">—</span>}
+              </td>
+              <td className="money">{Number(l.debit) ? '$' + money(l.debit) : ''}</td>
+              <td className="money">{Number(l.credit) ? '$' + money(l.credit) : ''}</td>
+            </tr>
+          ))}
+          {/* the two sides are shown because an entry that does not balance is
+              the thing you most want to notice while looking at one */}
+          <tr>
+            <td colSpan={6} className="muted" style={{ textAlign: 'right' }}>
+              <b>{Math.abs(dr - cr) < 0.005 ? 'balances' : 'OUT BY ' + money(dr - cr)}</b>
+            </td>
+            <td className="money"><b>${money(dr)}</b></td>
+            <td className="money"><b>${money(cr)}</b></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="bar" style={{ margin: '8px 0 0' }}>
+        <span className="muted" style={{ fontSize: 12 }}>Supporting documents</span>
+        {docs && docs.length === 0 && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            none on file — an entry typed by hand has no paperwork behind it
+          </span>
+        )}
+        {(docs || []).map((d, i) => (
+          <span key={i} style={{ fontSize: 12 }}>
+            <span className="pill soft">{d.kind}</span>
+            {d.label}
+            {d.doc_date && <span className="muted"> {d.doc_date}</span>}
+            {d.amount != null && <span className="muted"> ${money(d.amount)}</span>}
+            <DocLink path={d.path} label="path" title={d.path} />
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const PAGE = 300
 const COLS = 'business,entry_no,entry_date,source,reference,sage_entry,narrative,total,lines,detail,ledger_entry_id'
@@ -43,13 +136,18 @@ export default function GeneralJournal() {
   const [page, setPage] = useState(0)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [sel, setSel] = useState(null)      // ledger_entry_id of the open row
   const entities = useEntities()
+
+  const expand = id => setSel(s => (s === id ? null : id))
 
   const wanted = refs.split(/[,]+/).flatMap(s => s.split(/\s+/)).map(classify).filter(Boolean)
   const searching = wanted.length > 0
   const filterKey = JSON.stringify([biz, source, from, to, wanted])
 
-  useEffect(() => { setPage(0) }, [filterKey])
+  // a new filter means a new list; an entry left open from the old one would
+  // hang under whatever row happened to take its place
+  useEffect(() => { setPage(0); setSel(null) }, [filterKey])
 
   useEffect(() => {
     const handle = setTimeout(run, 250)   // debounce the reference box
@@ -208,28 +306,48 @@ export default function GeneralJournal() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={r.ledger_entry_id || `${r.business}-${r.entry_no}-${i}`}>
-                    <td><span className="pill">{r.business}</span></td>
-                    <td className="muted">{r.entry_no}</td>
-                    <td>{r.entry_date}</td>
-                    <td className="muted">
-                      {r.reference}
-                      {r.sage_entry && <div className="muted">{r.sage_entry}</div>}
-                    </td>
-                    <td>
-                      <div>{String(r.narrative || '').slice(0, 70)}</div>
-                      <div className="muted" style={{ fontSize: 11 }}>{r.detail}</div>
-                    </td>
-                    <td className="money">${money(r.total)}</td>
-                    <td>
-                      <span className={'pill ' + (r.source === 'adjustment' ? 'hold'
-                                                : r.source === 'new here' ? '' : 'soft')}>
-                        {r.source}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {rows.flatMap((r, i) => {
+                  const key = r.ledger_entry_id || `${r.business}-${r.entry_no}-${i}`
+                  const open = sel === r.ledger_entry_id && !!r.ledger_entry_id
+                  return [
+                    <tr key={key}
+                        className={(r.ledger_entry_id ? 'drill' : '') + (open ? ' rowsel' : '')}
+                        onClick={() => r.ledger_entry_id && expand(r.ledger_entry_id)}>
+                      <td><span className="pill">{r.business}</span></td>
+                      <td className="muted">{r.entry_no}</td>
+                      <td>{r.entry_date}</td>
+                      <td className="muted">
+                        {r.reference}
+                        {r.sage_entry && r.sage_entry !== r.reference &&
+                          <div className="muted">{r.sage_entry}</div>}
+                      </td>
+                      <td>
+                        <div>{String(r.narrative || '').slice(0, 70)}</div>
+                        {/* the joined string is the summary; the expanded rows
+                            below are the readable version, so it is dimmed once
+                            the entry is open rather than shown twice */}
+                        {!open && (
+                          <div className="muted" style={{ fontSize: 11 }}>{r.detail}</div>
+                        )}
+                      </td>
+                      <td className="money">${money(r.total)}</td>
+                      <td>
+                        <span className={'pill ' + (r.source === 'adjustment' ? 'hold'
+                                                  : r.source === 'new here' ? '' : 'soft')}>
+                          {r.source}
+                        </span>
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          {r.lines} line{Number(r.lines) === 1 ? '' : 's'}
+                        </div>
+                      </td>
+                    </tr>,
+                    open && (
+                      <tr key={key + '-d'} className="expand">
+                        <td colSpan={7}><EntryDetail id={r.ledger_entry_id} /></td>
+                      </tr>
+                    ),
+                  ]
+                })}
               </tbody>
             </table>
           </div>
