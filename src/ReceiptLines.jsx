@@ -202,9 +202,11 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
 
   function beginSplit(line) {
     setSplitting(line.line_id)
+    // the first part inherits whatever the line was already coded to, so a
+    // two-way split of an already-coded line only needs the second side filled
     setParts([
-      { business: line.business || '', pct: 50 },
-      { business: '', pct: 50 },
+      { business: line.business || '', pct: 50, account: line.gl_number || '' },
+      { business: '', pct: 50, account: '' },
     ])
   }
 
@@ -219,14 +221,17 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
     try {
       const payload = clear ? [] : parts
         .filter(p => p.business && num(p.pct) > 0)
-        .map(p => ({ business: p.business, pct: num(p.pct) }))
+        .map(p => ({ business: p.business, pct: num(p.pct), account: p.account || null }))
       const res = await rpc('set_split_parts', { p_line_id: line.line_id, p_parts: payload })
       setSplitting(null); setParts([])
       await loadLines(rid)          // the shape changed — read it back
+      const uncoded = clear ? 0 : payload.filter(p => !p.account).length
       if (clear) setMsg('Split undone — back to one line.')
       else if (res && res.length && res.some(x => x.balanced === false)) {
         setMsg('Split saved, but the parts do not add back to the line. Check the percentages.')
-      } else setMsg('Split. Any new part still needs its account.')
+      } else setMsg(uncoded
+        ? `Split. ${uncoded} part${uncoded === 1 ? '' : 's'} still need an account.`
+        : 'Split, and every part is coded.')
     } catch (e) { setErr(e.message) }
     setBusy('')
   }
@@ -511,8 +516,34 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                                            onChange={e => setParts(ps => ps.map((x, j) =>
                                              j === i ? { ...x, pct: e.target.value } : x))} />
                                   </td>
-                                  <td className="muted">
+                                  <td className="muted" style={{ width: 120 }}>
                                     % · ${money(num(l.amount) * num(p.pct) / 100)}
+                                  </td>
+                                  {/* set_split_parts has always read an
+                                      "account" off each part and resolved it
+                                      against gl_accounts; the pane simply never
+                                      sent one, so every part came out uncoded
+                                      and had to be given an account by hand
+                                      afterwards. The list is filtered to the
+                                      part's own entity, so you cannot put a BRA
+                                      cost on an FSK account. */}
+                                  <td>
+                                    <select value={p.account || ''}
+                                            disabled={!p.business}
+                                            title={p.business
+                                              ? 'Which account this share goes to'
+                                              : 'Pick the entity first'}
+                                            onChange={e => setParts(ps => ps.map((x, j) =>
+                                              j === i ? { ...x, account: e.target.value } : x))}>
+                                      <option value="">
+                                        {p.business ? '— leave uncoded —' : '— pick an entity —'}
+                                      </option>
+                                      {accounts.filter(a => a.business === p.business).map(a => (
+                                        <option key={a.business + a.number} value={a.number}>
+                                          {a.number} {a.name}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </td>
                                   <td style={{ width: 40 }}>
                                     {parts.length > 2 && (
@@ -524,7 +555,7 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                             </tbody>
                           </table>
                           <div className="bar" style={{ margin: '6px 0 0' }}>
-                            <button onClick={() => setParts(ps => [...ps, { business: '', pct: 0 }])}>
+                            <button onClick={() => setParts(ps => [...ps, { business: '', pct: 0, account: '' }])}>
                               Add a part
                             </button>
                             <span className={'muted ' + (Math.abs(pctTotal - 100) < 0.005 ? 'pos' : 'neg')}
