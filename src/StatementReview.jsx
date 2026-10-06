@@ -10,10 +10,18 @@ const num = v => Number(v) || 0
 /**
  * Queue 8 — Statement only, review.
  *
- * These were cleared on the strength of the statement alone: no receipt, no
- * invoice, `review_basis = 'reference'`. The statement proves the money moved;
- * it does not say what it was for. So they are reviewed but uncoded, and this
- * is where the coding is put on.
+ * A bank or card statement is the ONLY backup: no receipt, no invoice. The
+ * statement proves the money moved; it does not say what it was for. So these
+ * still need both coding and reviewing, and this is where that happens.
+ *
+ * It used to be the other way round — the view required status='reviewed' and
+ * `review_basis='reference'`, so the queue listed work already signed off and
+ * hid the work it is named for. William's point: "Statement only — REVIEW"
+ * means not yet reviewed, by definition. The view now selects on that, and the
+ * 69 Personal rows cleared on 7 Aug 2026 were reopened to be coded normally.
+ * The 25 BRA rows were left alone: their notes say Sage already carries them,
+ * or the far side of the transfer holds the entry, so coding them here would
+ * double-count.
  *
  * **The whole point is coding them in runs.** One statement of card charges is
  * forty lines of the same handful of vendors, and `code_statement_lines` takes
@@ -118,9 +126,10 @@ export default function StatementReview() {
   return (
     <div className="page">
       <p className="hint">
-        Cleared on the statement alone — the money certainly moved, but nothing says what it was
-        for, so they are reviewed and uncoded. Code them in <b>runs</b>: one vendor's charges go
-        on in a single pass, cross-entity legs and all.
+        A statement is the only backup — the money certainly moved, but nothing says what it was
+        for, so these are <b>uncoded and not yet reviewed</b>. Code them in <b>runs</b>: one
+        vendor's charges go on in a single pass, cross-entity legs and all, and the run marks
+        them reviewed as it goes.
       </p>
 
       {err && <div className="err">{err}</div>}
