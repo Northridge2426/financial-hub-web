@@ -240,11 +240,23 @@ export default function PayablesApply({ txn, onDone, onPicked }) {
                 </td>
                 <td className="muted" style={{ fontSize: 11.5 }}>{c.why}</td>
                 <td onClick={e => e.stopPropagation()}>
-                  <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
-                          title="Apply just this invoice. Replaces whatever entry this payment already has — the only path that works on a payment already coded."
-                          onClick={() => applyOne(c.receipt_id, c.vendor)}>
-                    {busy === c.receipt_id ? 'applying…' : 'just this one'}
-                  </button>
+                  {c.businesses.length > 1 ? (
+                    /* apply_invoice writes a two-sided entry for ONE payable
+                       entity, so it cannot settle a split invoice — it used to
+                       read the balance with SELECT INTO over a GROUP BY and
+                       quietly keep one half. Offering the button here only
+                       leads to a refusal, so point at the path that works. */
+                    <button disabled style={{ padding: '1px 8px', fontSize: 11 }}
+                            title={`Split across ${c.businesses.join(' + ')}. Tick the row and use "Apply and post", which settles every side.`}>
+                      tick it instead
+                    </button>
+                  ) : (
+                    <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
+                            title="Apply just this invoice. Replaces whatever entry this payment already has — the only path that works on a payment already coded."
+                            onClick={() => applyOne(c.receipt_id, c.vendor)}>
+                      {busy === c.receipt_id ? 'applying…' : 'just this one'}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -282,11 +294,18 @@ export default function PayablesApply({ txn, onDone, onPicked }) {
                     <td style={{ width: 96 }}>{o.doc_date}</td>
                     <td className="money" style={{ width: 110 }}>${money(o.balance)}</td>
                     <td style={{ width: 96 }} onClick={e => e.stopPropagation()}>
-                      <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
-                              title="Apply just this invoice. Replaces whatever entry this payment already has."
-                              onClick={() => applyOne(o.receipt_id, o.doc_vendor)}>
-                        {busy === o.receipt_id ? 'applying…' : 'just this one'}
-                      </button>
+                      {o.businesses.length > 1 ? (
+                        <button disabled style={{ padding: '1px 8px', fontSize: 11 }}
+                                title={`Split across ${o.businesses.join(' + ')}. Tick the row and use "Apply and post", which settles every side.`}>
+                          tick it instead
+                        </button>
+                      ) : (
+                        <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
+                                title="Apply just this invoice. Replaces whatever entry this payment already has."
+                                onClick={() => applyOne(o.receipt_id, o.doc_vendor)}>
+                          {busy === o.receipt_id ? 'applying…' : 'just this one'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
