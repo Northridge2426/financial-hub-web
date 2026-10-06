@@ -39,6 +39,7 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
   // never be saved — neither field could go first.
   const [pending, setPending] = useState({})     // line_id -> { business, account }
   const [picker, setPicker] = useState(null)     // { line, rid, top, left }
+  const [partPick, setPartPick] = useState(null) // which split part's projects are open
   const [adding, setAdding] = useState(null)     // receipt gaining a line
   const [newLine, setNewLine] = useState({ desc: '', amt: '' })
   const entities = useEntities()
@@ -205,9 +206,11 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
     // the first part inherits whatever the line was already coded to, so a
     // two-way split of an already-coded line only needs the second side filled
     setParts([
-      { business: line.business || '', pct: 50, account: line.gl_number || '' },
-      { business: '', pct: 50, account: '' },
+      { business: line.business || '', pct: 50, account: line.gl_number || '',
+        projects: line.projects || [] },
+      { business: '', pct: 50, account: '', projects: [] },
     ])
+    setPartPick(null)
   }
 
   /**
@@ -221,9 +224,10 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
     try {
       const payload = clear ? [] : parts
         .filter(p => p.business && num(p.pct) > 0)
-        .map(p => ({ business: p.business, pct: num(p.pct), account: p.account || null }))
+        .map(p => ({ business: p.business, pct: num(p.pct), account: p.account || null,
+                     projects: p.projects && p.projects.length ? p.projects : null }))
       const res = await rpc('set_split_parts', { p_line_id: line.line_id, p_parts: payload })
-      setSplitting(null); setParts([])
+      setSplitting(null); setParts([]); setPartPick(null)
       await loadLines(rid)          // the shape changed — read it back
       const uncoded = clear ? 0 : payload.filter(p => !p.account).length
       if (clear) setMsg('Split undone — back to one line.')
@@ -322,7 +326,8 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
 
       {receipts.map(r => {
         const rows = lines[r.receipt_id]
-        const uncoded = (rows || []).filter(l => !l.gl_number).length
+        const uncoded = (rows || []).filter(l => !l.gl_number
+          && !(rows || []).some(x => x.parent_line_id === l.line_id)).length
         return (
           <div className="note" key={r.receipt_id} style={{ marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -409,8 +414,16 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(l => [
-                    <tr key={l.line_id} className={!l.gl_number ? 'row-late' : ''}>
+                  {rows.map(l => {
+                    // A SPLIT PARENT IS A CONTAINER, NOT A LINE. Its money
+                    // lives on its children; the entry builder ignores it.
+                    // Offering it an entity and an account invited coding a
+                    // row that can never post, and counting it as "uncoded"
+                    // made a finished split look unfinished.
+                    const isParent = rows.some(x => x.parent_line_id === l.line_id)
+                    return [
+                    <tr key={l.line_id}
+                        className={isParent ? 'muted' : (!l.gl_number ? 'row-late' : '')}>
                       <td className="muted">
                         {l.line_no}
                         {l.parent_line_id && (
@@ -434,6 +447,12 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                           </div>
                         )}
                       </td>
+                      {isParent ? (
+                        <td colSpan={2} className="muted" style={{ fontSize: 12 }}>
+                          split {rows.filter(x => x.parent_line_id === l.line_id).length} ways —
+                          coded on the parts below
+                        </td>
+                      ) : (<>
                       <td>
                         <select disabled={busy === l.line_id}
                                 value={pending[l.line_id]?.business ?? l.business ?? ''}
@@ -453,11 +472,13 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                           ))}
                         </select>
                       </td>
+                      </>)}
                       <td style={{ fontSize: 11 }}>
                         {/* A tick list per row ran to the height of the project
                             list on every one of nineteen lines. The picker opens
                             only when it is wanted. */}
-                        <button className="projbtn" disabled={busy === l.line_id}
+                        <button className="projbtn"
+                                disabled={busy === l.line_id || isParent}
                                 title={(l.project_ids || []).length
                                   ? projects.filter(p => (l.project_ids || []).includes(p.id))
                                             .map(p => p.name).join(', ')
@@ -545,6 +566,41 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                                       ))}
                                     </select>
                                   </td>
+                                  {/* a part carries project TAGS, plural, the
+                                      same as any other line. Kept inline rather
+                                      than reusing the floating picker, which is
+                                      bound to a saved line id — these parts do
+                                      not exist yet. */}
+                                  <td style={{ width: 190 }}>
+                                    <button className="projbtn"
+                                            onClick={() => setPartPick(x => x === i ? null : i)}>
+                                      {(p.projects || []).length
+                                        ? projects.filter(pr => (p.projects || []).includes(pr.id))
+                                            .map(pr => pr.name).join(', ')
+                                        : 'projects'}
+                                    </button>
+                                    {partPick === i && (
+                                      <div style={{ border: '1px solid var(--line,#ddd)', padding: 4,
+                                                    marginTop: 2, maxHeight: 150, overflowY: 'auto' }}>
+                                        {projects.map(pr => (
+                                          <label key={pr.id} style={{ display: 'block', fontSize: 12 }}>
+                                            <input type="checkbox"
+                                                   checked={(p.projects || []).includes(pr.id)}
+                                                   onChange={e => setParts(ps => ps.map((x, j) => {
+                                                     if (j !== i) return x
+                                                     const had = x.projects || []
+                                                     return { ...x, projects: e.target.checked
+                                                       ? [...had, pr.id]
+                                                       : had.filter(id => id !== pr.id) }
+                                                   }))} />
+                                            {' '}{pr.name}
+                                          </label>
+                                        ))}
+                                        <button style={{ marginTop: 4 }}
+                                                onClick={() => setPartPick(null)}>Done</button>
+                                      </div>
+                                    )}
+                                  </td>
                                   <td style={{ width: 40 }}>
                                     {parts.length > 2 && (
                                       <button onClick={() => setParts(ps => ps.filter((_, j) => j !== i))}>×</button>
@@ -555,7 +611,7 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                             </tbody>
                           </table>
                           <div className="bar" style={{ margin: '6px 0 0' }}>
-                            <button onClick={() => setParts(ps => [...ps, { business: '', pct: 0, account: '' }])}>
+                            <button onClick={() => setParts(ps => [...ps, { business: '', pct: 0, account: '', projects: [] }])}>
                               Add a part
                             </button>
                             <span className={'muted ' + (Math.abs(pctTotal - 100) < 0.005 ? 'pos' : 'neg')}
@@ -563,7 +619,7 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                               {pctTotal.toFixed(2)}%
                             </span>
                             <span style={{ flex: 1 }} />
-                            <button onClick={() => { setSplitting(null); setParts([]) }}>Cancel</button>
+                            <button onClick={() => { setSplitting(null); setParts([]); setPartPick(null) }}>Cancel</button>
                             {num(l.split_pct) > 0 || rows.some(x => x.parent_line_id === l.line_id) ? (
                               <button disabled={busy === l.line_id}
                                       title="Removes the parts and puts the line back as it was."
@@ -580,7 +636,7 @@ export default function ReceiptLines({ txnId, receiptId, onBuild }) {
                         </td>
                       </tr>
                     ),
-                  ])}
+                  ]})}
                 </tbody>
               </table>
             )}
