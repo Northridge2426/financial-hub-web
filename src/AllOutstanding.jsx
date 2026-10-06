@@ -15,7 +15,9 @@ const num = v => Number(v) || 0
  */
 export default function AllOutstanding() {
   const [rows, setRows] = useState(null)
+  const [queues, setQueues] = useState(new Map())
   const [err, setErr] = useState('')
+  const [queue, setQueue] = useState('')
   const [group, setGroup] = useState('')
   const [account, setAccount] = useState('')
   const [why, setWhy] = useState('')
@@ -25,6 +27,32 @@ export default function AllOutstanding() {
   const [noteText, setNoteText] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+
+  /**
+   * Which queue each row is in.
+   *
+   * v_txn_queue derives membership from the same predicates queue_counts()
+   * uses for the badges, rather than guessing from status and flags here — a
+   * pill that disagreed with the badge beside it would be worse than no pill.
+   * A row can be in two (a vendor group plus Transfers and payments, say), so
+   * this is a list per transaction, ordered by the menu.
+   */
+  const loadQueues = () =>
+    supabase.from('v_txn_queue').select('id,k,label,ord')
+      .then(({ data, error }) => {
+        if (error) return setErr(error.message)
+        const m = new Map()
+        for (const r of (data || []).sort((a, b) => a.ord - b.ord)) {
+          if (!m.has(r.id)) m.set(r.id, [])
+          if (!m.get(r.id).some(x => x.k === r.k)) m.get(r.id).push(r)
+        }
+        // "Reviewed" is the fallback explanation for a row in no queue at all.
+        // Queue 8 requires status='reviewed', so without this every one of its
+        // 82 rows carried both pills and the specific one was the useful one.
+        for (const [id, list] of m)
+          if (list.length > 1) m.set(id, list.filter(x => x.k !== 'reviewed'))
+        setQueues(m)
+      })
 
   const load = () =>
     supabase.from('v_all_outstanding')
@@ -36,7 +64,7 @@ export default function AllOutstanding() {
       .order('txn_date', { ascending: false })
       .then(({ data, error }) => error ? setErr(error.message) : setRows(data || []))
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadQueues() }, [])
 
   const groups = useMemo(
     () => [...new Set((rows || []).map(r => r.vendor_group).filter(Boolean))].sort(), [rows])
@@ -44,6 +72,16 @@ export default function AllOutstanding() {
     () => [...new Set((rows || []).map(r => r.account).filter(Boolean))].sort(), [rows])
   const whys = useMemo(
     () => [...new Set((rows || []).map(r => r.why).filter(Boolean))].sort(), [rows])
+
+  // Menu order, not alphabetical — the filter should read like the sidebar.
+  const queueOpts = useMemo(() => {
+    const seen = new Map()
+    for (const list of queues.values())
+      for (const q of list) if (!seen.has(q.k)) seen.set(q.k, q)
+    return [...seen.values()].sort((a, b) => a.ord - b.ord || a.label.localeCompare(b.label))
+  }, [queues])
+
+  const queuesFor = id => queues.get(id) || []
 
   /**
    * A note is how a line gets worked without coding it here.
@@ -71,10 +109,13 @@ export default function AllOutstanding() {
       (!group || r.vendor_group === group) &&
       (!account || r.account === account) &&
       (!why || r.why === why) &&
+      (!queue || (queue === 'none'
+        ? queuesFor(r.id).length === 0
+        : queuesFor(r.id).some(q => q.k === queue))) &&
       (!range.from || r.txn_date >= range.from) &&
       (!range.to   || r.txn_date <= range.to) &&
       (!needle || `${r.ref} ${r.descr} ${r.merchant || ''}`.toLowerCase().includes(needle)))
-  }, [rows, group, account, why, q, range.from, range.to])
+  }, [rows, queues, queue, group, account, why, q, range.from, range.to])
 
   if (err) return <div className="page"><div className="err">{err}</div></div>
   if (!rows) return <div className="page"><div className="loading">Loading…</div></div>
@@ -99,6 +140,11 @@ export default function AllOutstanding() {
         <select value={account} onChange={e => setAccount(e.target.value)} style={{ maxWidth: 230 }}>
           <option value="">All accounts</option>
           {accounts.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select value={queue} onChange={e => setQueue(e.target.value)} style={{ maxWidth: 250 }}>
+          <option value="">Any queue</option>
+          <option value="none">In no queue</option>
+          {queueOpts.map(o => <option key={o.k} value={o.k}>{o.label}</option>)}
         </select>
         <select value={why} onChange={e => setWhy(e.target.value)} style={{ maxWidth: 280 }}>
           <option value="">Any reason</option>
@@ -129,13 +175,14 @@ export default function AllOutstanding() {
               <th>Description</th>
               <th className="num" style={{ width: 110 }}>Amount</th>
               <th style={{ width: 120 }}>Group</th>
+              <th style={{ width: 150 }}>Queue</th>
               <th style={{ width: 230 }}>Why it is still here</th>
               <th style={{ width: 70 }} />
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 && (
-              <tr><td colSpan={8} className="muted">Nothing matches those filters.</td></tr>
+              <tr><td colSpan={9} className="muted">Nothing matches those filters.</td></tr>
             )}
             {shown.map(r => [
               <tr key={r.id}>
@@ -157,6 +204,13 @@ export default function AllOutstanding() {
                 <td style={{ fontSize: 11 }}>
                   {r.vendor_group && <span className="pill">{r.vendor_group}</span>}
                   {r.quick_rule && <span className="pill soft" title="A rule recognises this.">rule</span>}
+                </td>
+                <td style={{ fontSize: 11 }}>
+                  {queuesFor(r.id).length === 0
+                    ? <span className="pill hold" title="In none of the queues — this page is the only place it appears.">no queue</span>
+                    : queuesFor(r.id).map(qq => (
+                        <span key={qq.k} className="pill soft" title={qq.label}>{qq.label}</span>
+                      ))}
                 </td>
                 <td style={{ fontSize: 11.5 }}>
                   {r.why}
@@ -189,7 +243,7 @@ export default function AllOutstanding() {
               </tr>,
               noting === r.id && (
                 <tr key={r.id + '-n'} className="expand">
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <div className="bar" style={{ margin: 0 }}>
                       <span style={{ fontSize: 12.5 }}>{r.ref} — what should happen to it?</span>
                       <input value={noteText} onChange={e => setNoteText(e.target.value)}

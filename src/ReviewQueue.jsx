@@ -8,13 +8,20 @@ import DateRange from './DateRange.jsx'
 
 const num = v => Number(v) || 0
 
-/** The numbered queues, in the console's order and with its labels. */
+/**
+ * The numbered queues, in the console's order and with its labels.
+ *
+ * 5 (Waiting on documents) and 7 (Documents arrived after review) were retired:
+ * William would rather hold off reviewing a line when the information is not
+ * there than work a queue for it. They are gone from this switcher as well as
+ * the menu, or the pane would still reach them by dropdown. The underlying rows
+ * are untouched and still excluded from queues 2 and 4 — they surface in All
+ * Outstanding, where the queue pill names the state they are in.
+ */
 export const QUEUES = [
   { k: 'docs',     label: '2 · Assign receipts to invoices' },
   { k: 'hold',     label: '3 · Transfers and payments' },
   { k: 'plain',    label: '4 · Allocate expenses' },
-  { k: 'apwait',   label: '5 · Waiting on documents' },
-  { k: 'reopened', label: '7 · Documents arrived after review' },
   { k: 'reviewed', label: '9 · Reviewed — reopen one' },
 ]
 
@@ -23,10 +30,6 @@ const NOTE = {
     'Payments the books expect an invoice behind. An explicit "apply to an invoice" mark beats both the vendor group and the absence of an invoice.'],
   plain: ['Allocate expenses',
     'What is left once every other queue has taken its own — ordinary purchases with no named vendor and no paperwork outstanding.'],
-  apwait: ['Waiting on documents',
-    'Cannot be finished because the paperwork is not here: no invoice file, no linked invoice entry, or a document recorded from an email with no file behind it.'],
-  reopened: ['Documents arrived after review',
-    'Cleared once, then a receipt turned up. New evidence against an old judgement, so the judgement is shown again. Telling the document what it is moves the row on.'],
   reviewed: ['Reviewed — reopen one',
     'Already done. Open one to correct the entry behind it.'],
 }
