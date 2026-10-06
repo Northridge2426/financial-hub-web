@@ -5,6 +5,42 @@ import { money } from './format.js'
 const num = v => Number(v) || 0
 
 /**
+ * One row per invoice, not one per entity.
+ *
+ * v_ap_outstanding carries a row per ENTITY per invoice, so a power bill split
+ * 50/50 arrives as two rows sharing a single receipt_id — BMS 54.08 and BRA
+ * 54.09 of one $108.17 document. `picked` holds receipt_ids, which made that
+ * pair behave as one tick (right, since apply_payment_application settles the
+ * whole invoice across both books) while the running total added it up with
+ * .find(), which sees only the first row. A $108.17 invoice counted as $54.09
+ * and the bar announced a $54.08 shortfall that did not exist. T004165 against
+ * 506031-134516 could not be applied because of it.
+ *
+ * Collapsing here rather than in SQL keeps the entity split visible — the
+ * caller still gets `businesses` to show which books it lands in.
+ */
+function byInvoice(rows) {
+  const out = new Map()
+  for (const r of rows || []) {
+    const seen = out.get(r.receipt_id)
+    if (seen) {
+      seen.balance = Math.round((seen.balance + num(r.balance)) * 100) / 100
+      if (r.business && !seen.businesses.includes(r.business)) seen.businesses.push(r.business)
+      // Keep the strongest reason: the rows differ only by entity, but a
+      // scored list can hand back the same invoice with different scores.
+      if (num(r.score) > num(seen.score)) { seen.score = r.score; seen.why = r.why }
+    } else {
+      out.set(r.receipt_id, {
+        ...r,
+        balance: num(r.balance),
+        businesses: r.business ? [r.business] : [],
+      })
+    }
+  }
+  return [...out.values()]
+}
+
+/**
  * Apply a payment to one or more open payables.
  *
  * A payment often settles several invoices at once — a $1,690.27 payment to the
@@ -48,7 +84,7 @@ export default function PayablesApply({ txn, onDone, onPicked }) {
         rpc('invoice_candidates', { p_txn: txn.id }).catch(() => []),
         rpc('open_payables_for', { p_txn: txn.id }).catch(() => []),
       ])
-      setCands(c); setOpen(o)
+      setCands(byInvoice(c)); setOpen(byInvoice(o))
     } catch (e) { setErr(e.message) }
   }, [txn.id])
 
@@ -188,7 +224,14 @@ export default function PayablesApply({ txn, onDone, onPicked }) {
                          onClick={e => e.stopPropagation()}
                          onChange={() => toggle(c.receipt_id)} />
                 </td>
-                <td>{c.vendor}</td>
+                <td>
+                  {c.vendor}
+                  {c.businesses.length > 1 && (
+                    <span className="pill soft" title="Split across these books — applying settles all of it">
+                      {c.businesses.join(' + ')}
+                    </span>
+                  )}
+                </td>
                 <td className="muted">{c.reference}</td>
                 <td>{c.doc_date}</td>
                 <td className="money">${money(c.balance)}</td>
@@ -225,7 +268,12 @@ export default function PayablesApply({ txn, onDone, onPicked }) {
                              onClick={e => e.stopPropagation()}
                              onChange={() => toggle(o.receipt_id)} />
                     </td>
-                    <td><span className="pill">{o.business}</span></td>
+                    <td>
+                      <span className="pill" title={o.businesses.length > 1
+                        ? 'Split across these books — applying settles all of it' : undefined}>
+                        {o.businesses.join(' + ') || o.business}
+                      </span>
+                    </td>
                     <td>
                       {o.doc_vendor}
                       {o.same_vendor && <span className="pill soft">same vendor</span>}
