@@ -40,6 +40,11 @@ const SOURCE_LABEL = {
  * plain lines with no `settles_receipt_id`, and that stamp is the only thing
  * marking an invoice paid. Saving an AP debit here posts the cash side and
  * leaves the payable outstanding — it half works, which is worse than failing.
+ *
+ * Saving with payables TICKED upstairs is refused outright rather than warned,
+ * because the ticks remove the ambiguity the warning exists to flag. T003876
+ * reached the ledger this way: four correct lines, no stamp, payable still
+ * showing $78.75 open against a bill that was paid.
  */
 /** Which section opens first depends on the queue you are working. Documents
  *  always open when there are any — you cannot judge a row without them. */
@@ -76,6 +81,7 @@ export default function TxnEditor({ txn, kind, onDone }) {
   const [xferTo, setXferTo] = useState('')
   const [splitState, setSplitState] = useState(0)
   const [preSplit, setPreSplit] = useState(null)
+  const [payablesPicked, setPayablesPicked] = useState(0)
   const entities = useEntities()
 
   const load = useCallback(async () => {
@@ -106,6 +112,12 @@ export default function TxnEditor({ txn, kind, onDone }) {
   }, [txn.id])
 
   useEffect(() => { load() }, [load])
+
+  // Ticks belong to the transaction you ticked them on. Without this, moving to
+  // the next row carries the count over and the save guard below refuses a
+  // transaction that has nothing ticked — and PayablesApply does not render at
+  // all on an inflow, so nothing else would ever clear it.
+  useEffect(() => { setPayablesPicked(0) }, [txn.id])
 
   useEffect(() => {
     supabase.from('allocation_profiles').select('code,name').order('name')
@@ -326,6 +338,20 @@ export default function TxnEditor({ txn, kind, onDone }) {
   }
 
   async function save(markReviewed) {
+    // You have payables ticked upstairs. This is a refusal, not a warning: the
+    // ticks say plainly that this payment settles an invoice, and saving here
+    // would write plain lines with no settles_receipt_id, post the cash side and
+    // leave the payable outstanding — then mark it reviewed so it leaves the
+    // queue and nobody looks again. The ticks are unambiguous, so there is
+    // nothing to weigh up and no second press to offer.
+    if (payablesPicked > 0) {
+      setErr(`You have ${payablesPicked} payable${payablesPicked === 1 ? '' : 's'} ticked under `
+           + '“Apply this payment to invoices”. Ticking does not post anything — press '
+           + '“Apply and post” up there, which writes the entry AND marks the invoice settled. '
+           + 'Saving here instead would pay the bill in the ledger but leave the payable open. '
+           + 'Untick them if you meant to code this as a plain expense.')
+      return
+    }
     // Settling a payable is not a journal edit. Warn once, allow on a second press.
     if (apDebit && !apWarned) {
       setApWarned(true)
@@ -427,7 +453,7 @@ export default function TxnEditor({ txn, kind, onDone }) {
 
       {txn.direction === 'outflow' && (
         <Section title="Apply this payment to invoices" defaultOpen={!!opens.pay}>
-          <PayablesApply txn={txn} onDone={load} />
+          <PayablesApply txn={txn} onDone={load} onPicked={setPayablesPicked} />
         </Section>
       )}
 

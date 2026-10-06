@@ -31,7 +31,7 @@ const num = v => Number(v) || 0
  *
  * Preview first: applying writes the lines and stamps settles_receipt_id.
  */
-export default function PayablesApply({ txn, onDone }) {
+export default function PayablesApply({ txn, onDone, onPicked }) {
   const [cands, setCands] = useState(null)
   const [open, setOpen] = useState([])
   const [picked, setPicked] = useState([])
@@ -53,6 +53,10 @@ export default function PayablesApply({ txn, onDone }) {
   }, [txn.id])
 
   useEffect(() => { load() }, [load])
+
+  // The editor below needs to know a payable is ticked, so it can refuse to
+  // save a plain entry over the top of a settlement you were part way through.
+  useEffect(() => { if (onPicked) onPicked(picked.length) }, [picked, onPicked])
 
   const toggle = id =>
     setPicked(p => { setPreview(null); return p.includes(id) ? p.filter(x => x !== id) : [...p, id] })
@@ -142,9 +146,11 @@ export default function PayablesApply({ txn, onDone }) {
           </thead>
           <tbody>
             {cands.map(c => (
-              <tr key={c.receipt_id} className={picked.includes(c.receipt_id) ? 'rowsel' : ''}>
+              <tr key={c.receipt_id} className={picked.includes(c.receipt_id) ? 'rowsel' : ''}
+                  style={{ cursor: 'pointer' }} onClick={() => toggle(c.receipt_id)}>
                 <td>
                   <input type="checkbox" checked={picked.includes(c.receipt_id)}
+                         onClick={e => e.stopPropagation()}
                          onChange={() => toggle(c.receipt_id)} />
                 </td>
                 <td>{c.vendor}</td>
@@ -155,7 +161,7 @@ export default function PayablesApply({ txn, onDone }) {
                   <span className={'pill ' + (num(c.score) >= 40 ? 'soft' : 'hold')}>{c.score}</span>
                 </td>
                 <td className="muted" style={{ fontSize: 11.5 }}>{c.why}</td>
-                <td>
+                <td onClick={e => e.stopPropagation()}>
                   <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
                           title="Apply just this invoice. Replaces whatever entry this payment already has — the only path that works on a payment already coded."
                           onClick={() => applyOne(c.receipt_id, c.vendor)}>
@@ -177,9 +183,11 @@ export default function PayablesApply({ txn, onDone }) {
             <table style={{ marginTop: 4 }}>
               <tbody>
                 {others.map(o => (
-                  <tr key={o.receipt_id} className={picked.includes(o.receipt_id) ? 'rowsel' : ''}>
+                  <tr key={o.receipt_id} className={picked.includes(o.receipt_id) ? 'rowsel' : ''}
+                      style={{ cursor: 'pointer' }} onClick={() => toggle(o.receipt_id)}>
                     <td style={{ width: 28 }}>
                       <input type="checkbox" checked={picked.includes(o.receipt_id)}
+                             onClick={e => e.stopPropagation()}
                              onChange={() => toggle(o.receipt_id)} />
                     </td>
                     <td><span className="pill">{o.business}</span></td>
@@ -190,7 +198,7 @@ export default function PayablesApply({ txn, onDone }) {
                     <td style={{ width: 120 }} className="muted">{o.doc_reference}</td>
                     <td style={{ width: 96 }}>{o.doc_date}</td>
                     <td className="money" style={{ width: 110 }}>${money(o.balance)}</td>
-                    <td style={{ width: 96 }}>
+                    <td style={{ width: 96 }} onClick={e => e.stopPropagation()}>
                       <button disabled={!!busy} style={{ padding: '1px 8px', fontSize: 11 }}
                               title="Apply just this invoice. Replaces whatever entry this payment already has."
                               onClick={() => applyOne(o.receipt_id, o.doc_vendor)}>
@@ -219,8 +227,16 @@ export default function PayablesApply({ txn, onDone }) {
                   : `$${money(-diff)} more than the payment`}
             </span>
             <span style={{ flex: 1 }} />
+            {/* Apply used to appear only AFTER previewing, so a ticked payable
+                showed no way to post it and the obvious move was to go down to
+                the entry grid and "Save and mark reviewed" — which writes no
+                settles_receipt_id and leaves the payable outstanding. Both
+                actions belong here; preview stays, it is no longer a toll. */}
             <button disabled={!!busy} onClick={doPreview}>
               {busy === 'preview' ? 'Checking…' : 'Preview the entry'}
+            </button>
+            <button className="primary" disabled={!!busy} onClick={apply}>
+              {busy === 'apply' ? 'Applying…' : 'Apply and post'}
             </button>
           </div>
 
