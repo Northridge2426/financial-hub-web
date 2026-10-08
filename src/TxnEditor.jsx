@@ -9,6 +9,7 @@ import Section from './Section.jsx'
 import ApBooked from './ApBooked.jsx'
 import ThisIsA from './ThisIsA.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
+import ProcessorDetail from './ProcessorDetail.jsx'
 
 const num = v => Number(v) || 0
 const blank = () => ({ business: '', account: '', debit: '', credit: '', basis: '' })
@@ -82,6 +83,7 @@ export default function TxnEditor({ txn, kind, onDone }) {
   const [splitState, setSplitState] = useState(0)
   const [preSplit, setPreSplit] = useState(null)
   const [payablesPicked, setPayablesPicked] = useState(0)
+  const [procCount, setProcCount] = useState('')
   const entities = useEntities()
 
   const load = useCallback(async () => {
@@ -481,6 +483,19 @@ export default function TxnEditor({ txn, kind, onDone }) {
                tone={/no file/.test(docCount) ? 'warn' : ''}>
         <DocumentList txnId={txn.id} onChanged={onDone} onCount={setDocCount} />
       </Section>
+
+      {/* What PayPal / Apple say this was. Hidden until the reports have
+          answered, like "Booked to payables here": an empty fold on every
+          ordinary card charge would be noise. Opens by itself when there is
+          something, because it is the reason the bank descriptor can be read. */}
+      <div style={procCount ? undefined : { display: 'none' }}>
+        <Section title="What PayPal / Apple say this was" count={procCount}
+                 key={'proc' + String(!!procCount)} defaultOpen={!!procCount}
+                 tone={/not coded/.test(procCount) ? 'warn' : ''}>
+          <ProcessorDetail txnId={txn.id} accounts={accounts} entities={entities}
+                           onDone={onDone} onCount={setProcCount} />
+        </Section>
+      </div>
 
       {txn.direction === 'outflow' && (
         <Section title="Apply this payment to invoices" defaultOpen={!!opens.pay}>
