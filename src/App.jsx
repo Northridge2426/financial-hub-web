@@ -72,6 +72,10 @@ const MENUS = [
     { key: 'docpair',  label: '6 · Document matching',             Component: DocumentMatching },
     { key: 'stmtrev',  label: '8 · Statement only — review',       Component: StatementReview },
     { key: 'reviewed', label: '9 · Reviewed — reopen one',         Component: () => <ReviewQueue kind="reviewed" /> },
+    // Posting a Rosy/Lodgify/Nayax draft is reviewing, not reporting: the sweep
+    // builds it and William decides. It sat under Financial overview, which is
+    // where you look at numbers rather than act on them, so it went unnoticed.
+    { key: 'proposed', label: '★ Proposed entries — post or reject', Component: Proposals },
     { key: 'allout',   label: '★ All outstanding — everything uncoded', Component: AllOutstanding },
   ]},
   { key: 'ov', label: 'Financial overview', pages: [
@@ -80,7 +84,6 @@ const MENUS = [
     { key: 'payprio',   label: 'Payment prioritisation',     Component: PaymentPriority },
     { key: 'recurring', label: 'Recurring payments',         Component: Recurring },
     { key: 'prov',      label: 'Provisional entries',        Component: Provisionals },
-    { key: 'proposed',  label: 'Proposed entries — post or reject', Component: Proposals },
   ]},
   { key: 'ap', label: 'Payables', pages: [
     { key: 'payables', label: 'Outstanding payables', Component: Payables },
