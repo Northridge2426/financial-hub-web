@@ -94,6 +94,34 @@ export default function BankRecon() {
     setBusy('')
   }
 
+  /**
+   * Finalise, then move straight on to the next open period on the same
+   * account. Periods are worked oldest first, so the next one is the earliest
+   * unfinalised period ending after this one. If there is none, stay on the
+   * period just finalised (ticking "show completed" so the selector still
+   * offers it) rather than blanking the pane.
+   */
+  async function finaliseAndAdvance() {
+    const cur = st
+    const next = forAccount.find(s => !s.finalised && s.statement_id !== sid
+      && (s.period_end || '') > ((cur && cur.period_end) || ''))
+    setBusy('finalise'); setErr(''); setMsg('')
+    try {
+      const res = await rpc('bank_rec_finalise', { p_statement: sid, p_note: 'Finalised on the web console' })
+      const done = typeof res === 'string' ? res : 'Finalised.'
+      await loadStatements()
+      if (next) {
+        setSid(next.statement_id)          // loadSides runs from the effect
+        setMsg(`${done} Now on ${next.period_start} → ${next.period_end}.`)
+      } else {
+        setShowDone(true)
+        await loadSides()
+        setMsg(`${done} No later open period on this account.`)
+      }
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+  }
+
   // One row per account, newest work first, with how much is left on it.
   const accountList = useMemo(() => {
     const m = new Map()
@@ -285,8 +313,7 @@ export default function BankRecon() {
           </table>
           <div className="bar" style={{ margin: '8px 0 0' }}>
             <button className="primary" disabled={!!busy}
-                    onClick={() => act('finalise', () =>
-                      rpc('bank_rec_finalise', { p_statement: sid, p_note: 'Finalised on the web console' }))}>
+                    onClick={finaliseAndAdvance}>
               {busy === 'finalise' ? 'Finalising…' : 'Finalise this period'}
             </button>
             <button onClick={() => setPreview(null)}>Cancel</button>
