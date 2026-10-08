@@ -17,6 +17,17 @@ const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
  * and judgements are sometimes wrong. Auto-apply exists because doing forty
  * obvious pairs by hand is its own source of error — but it reports what it
  * did, and any group it closed can be reopened from the list below it.
+ *
+ * **THE OPEN LIST IS THE WORKING SURFACE, NOT A REPORT.** This page first shipped
+ * able only to accept what `ledger_rec_suggest` proposed, which left no way to
+ * reconcile anything the suggester could not see — and that is most of the real
+ * work, because a Square payout against nine charges is not a pattern it guesses.
+ * The console had it right: tick the lines, watch the net, close it at zero.
+ * Restored from hub-live.html on 8 Oct 2026, with its rules intact —
+ *   - two lines minimum, because one line is not a reconciliation;
+ *   - Reconcile only when the net is zero, which is what clearing MEANS;
+ *   - a difference is bookable only up to $250. Past that it is a missing line,
+ *     and booking it would bury the thing you actually need to find.
  */
 export default function LedgerRec() {
   const [accounts, setAccounts] = useState(null)
@@ -33,6 +44,12 @@ export default function LedgerRec() {
   const [glAccounts, setGlAccounts] = useState([])
   const [diffFor, setDiffFor] = useState(null)   // group awaiting a difference account
   const [diffAcct, setDiffAcct] = useState('')
+  // Hand-picked lines. The console's whole working model: tick the charges and
+  // the deposit that settled them, watch the net, close it when it reaches zero.
+  const [sel, setSel] = useState(() => new Set())
+  const [note, setNote] = useState('')
+  const [manualDiff, setManualDiff] = useState(false)
+  const [manualAcct, setManualAcct] = useState('')
 
   const loadAccounts = useCallback(async () => {
     const { data, error } = await supabase.from('v_ledger_clearing_summary')
@@ -50,13 +67,14 @@ export default function LedgerRec() {
   }, [])
 
   const loadGroups = useCallback(async () => {
-    if (!gl) { setGroups(null); setOpen(null); setDone(null); return }
+    if (!gl) { setGroups(null); setOpen(null); setDone(null); setSel(new Set()); return }
     setGroups(null); setOpen(null); setDone(null); setErr('')
+    setSel(new Set()); setManualDiff(false); setManualAcct(''); setNote('')
     try {
       const [sug, openLines, closed] = await Promise.all([
         rpc('web_ledger_rec_suggest', { p_gl: gl, p_from: from, p_to: to, p_window: Number(window) }),
         supabase.from('v_ledger_clearing')
-          .select('line_id,entry_date,memo,debit,credit,net,txn_ref,jno,origin,reconciliation_id')
+          .select('line_id,entry_date,memo,debit,credit,net,txn_ref,jno,origin,external_ref,reconciliation_id')
           .eq('gl_account_id', gl).is('reconciliation_id', null)
           .order('entry_date')
           .then(({ data, error }) => { if (error) throw new Error(error.message); return data || [] }),
@@ -131,6 +149,49 @@ export default function LedgerRec() {
       })
       setMsg(typeof res === 'string' ? res : 'Closed, with the difference booked.')
       setDiffFor(null); setDiffAcct('')
+      await Promise.all([loadGroups(), loadAccounts()])
+    } catch (e) { setErr(e.message) }
+    setBusy(null)
+  }
+
+  /* ---- hand-picked reconciliation, the console's model ------------------ */
+
+  const toggle = id => setSel(s => {
+    const n = new Set(s)
+    n.has(id) ? n.delete(id) : n.add(id)
+    return n
+  })
+
+  const selNet = (open || []).filter(l => sel.has(l.line_id))
+                             .reduce((a, l) => a + num(l.net), 0)
+  const selRound = Math.round(selNet * 100) / 100
+  const balances = sel.size >= 2 && Math.abs(selRound) < 0.005
+  // A difference is bookable, not plugged — past a couple of hundred it is a
+  // missing line, not a rounding or a tip, so the button stays shut.
+  const diffable = sel.size >= 2 && Math.abs(selRound) >= 0.005 && Math.abs(selRound) <= 250
+
+  async function reconcileSelected() {
+    setBusy('manual'); setErr(''); setMsg('')
+    try {
+      const res = await rpc('reconcile_ledger_lines', {
+        p_lines: [...sel], p_note: note.trim() || null, p_on: null,
+      })
+      setMsg(typeof res === 'string' ? res : `${sel.size} lines reconciled.`)
+      setSel(new Set()); setNote('')
+      await Promise.all([loadGroups(), loadAccounts()])
+    } catch (e) { setErr(e.message) }
+    setBusy(null)
+  }
+
+  async function bookDifference() {
+    if (!manualAcct) { setErr('Pick the account the difference goes to.'); return }
+    setBusy('manual'); setErr(''); setMsg('')
+    try {
+      const res = await rpc('reconcile_ledger_with_difference', {
+        p_ids: [...sel], p_gl_number: manualAcct, p_note: note.trim() || null,
+      })
+      setMsg(typeof res === 'string' ? res : 'Closed, with the difference booked.')
+      setSel(new Set()); setNote(''); setManualDiff(false); setManualAcct('')
       await Promise.all([loadGroups(), loadAccounts()])
     } catch (e) { setErr(e.message) }
     setBusy(null)
@@ -347,33 +408,131 @@ export default function LedgerRec() {
 
           {open && open.length > 0 && (
             <div className="card">
-              <h2>Still open ({open.length})</h2>
+              <h2>
+                Still open ({open.length})
+                <span className="muted" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
+                  outstanding {signed(open.reduce((a, l) => a + num(l.net), 0))}
+                </span>
+              </h2>
+
+              {/* The working surface. Tick the charges and the deposit that settled
+                  them; the net tells you when the group is complete. */}
+              <div className="bar" style={{ margin: '0 0 8px' }}>
+                <span style={{ fontSize: 12.5 }}>
+                  {sel.size === 0 ? 'Nothing selected' : (
+                    <>
+                      <b>{sel.size} selected</b>, nets to{' '}
+                      <b className={balances ? 'pos' : 'due-soon'}>{signed(selRound)}</b>
+                    </>
+                  )}
+                </span>
+                <span style={{ flex: 1 }} />
+                <button onClick={() => setSel(new Set(open.map(l => l.line_id)))}>Select all</button>
+                <button disabled={!sel.size} onClick={() => { setSel(new Set()); setManualDiff(false) }}>
+                  Clear
+                </button>
+                <button className="primary" disabled={!balances || busy === 'manual'}
+                        title={sel.size < 2 ? 'Pick at least two lines.'
+                             : !balances ? 'A group has to net to zero — that is what clearing means.'
+                             : 'Close these lines against each other.'}
+                        onClick={reconcileSelected}>
+                  {busy === 'manual' ? 'Reconciling…' : 'Reconcile'}
+                </button>
+                <button disabled={!diffable || busy === 'manual'}
+                        title={sel.size >= 2 && Math.abs(selRound) > 250
+                          ? 'Over $250 is a missing line, not a difference — find it rather than booking it.'
+                          : 'Where a settlement is a little over or under, book the remainder and close the group.'}
+                        onClick={() => { setManualDiff(d => !d); setManualAcct('') }}>
+                  {diffable ? `Book the ${signed(Math.abs(selRound))} difference…`
+                            : 'Book the difference…'}
+                </button>
+              </div>
+
+              {(sel.size > 0) && (
+                <div className="bar" style={{ margin: '0 0 8px' }}>
+                  <label htmlFor="lrNote" style={{ fontSize: 12.5 }}>Note</label>
+                  <input id="lrNote" value={note} onChange={e => setNote(e.target.value)}
+                         placeholder="e.g. Square payout of 14 March — optional"
+                         style={{ flex: 1, minWidth: 240 }} />
+                </div>
+              )}
+
+              {manualDiff && diffable && (
+                <div className="note warn" style={{ marginBottom: 8 }}>
+                  The selection is <b>{signed(Math.abs(selRound))} {selRound < 0 ? 'over' : 'short'}</b> —
+                  where does the difference go?
+                  <div className="bar" style={{ margin: '6px 0 0' }}>
+                    <select value={manualAcct} onChange={e => setManualAcct(e.target.value)}
+                            style={{ minWidth: 320 }}>
+                      <option value="">— pick an account —</option>
+                      {/* The console's own shortlist first, by direction: an overage is
+                          usually a tip, a shortage usually cash short or misc revenue. */}
+                      {(selRound < 0 ? ['2640', '4460'] : ['4460', '5630', '2640']).map(n => {
+                        const a = glAccounts.find(x => x.number === n && x.business === picked?.business)
+                        return a ? (
+                          <option key={'s' + n} value={n}>{a.business} · {n} — {a.name}</option>
+                        ) : null
+                      })}
+                      <option disabled>──────────</option>
+                      {glAccounts.map(a => (
+                        <option key={a.business + a.number} value={a.number}>
+                          {a.business} · {a.number} — {a.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="primary" disabled={!manualAcct || busy === 'manual'}
+                            onClick={bookDifference}>
+                      {busy === 'manual' ? 'Closing…' : 'Book it and reconcile'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <table>
                 <thead>
                   <tr>
+                    <th style={{ width: 28 }} />
                     <th style={{ width: 96 }}>Date</th>
                     <th style={{ width: 90 }}>Txn</th>
                     <th style={{ width: 100 }}>Entry</th>
                     <th>Memo</th>
-                    <th style={{ width: 110 }}>Origin</th>
+                    <th style={{ width: 100 }}
+                        title="The processor's own batch reference. Lines sharing one settled together.">
+                      Batch
+                    </th>
                     <th className="num" style={{ width: 110 }}>Debit</th>
                     <th className="num" style={{ width: 110 }}>Credit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {open.map(l => (
-                    <tr key={l.line_id}>
+                    <tr key={l.line_id}
+                        className={sel.has(l.line_id) ? 'rowsel' : ''}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => toggle(l.line_id)}>
+                      <td onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={sel.has(l.line_id)}
+                               onChange={() => toggle(l.line_id)} />
+                      </td>
                       <td>{l.entry_date}</td>
                       <td className="muted">{l.txn_ref || ''}</td>
                       <td className="muted">{l.jno || ''}</td>
                       <td>{l.memo}</td>
-                      <td className="muted" style={{ fontSize: 12 }}>{l.origin || ''}</td>
+                      <td className="muted" style={{ fontSize: 11 }} title={l.external_ref || ''}>
+                        {l.external_ref ? l.external_ref.slice(0, 8) + '…' : ''}
+                      </td>
                       <td className="money">{num(l.debit) ? money(l.debit) : ''}</td>
                       <td className="money">{num(l.credit) ? money(l.credit) : ''}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <p className="hint" style={{ margin: '8px 0 0' }}>
+                A selection has to net to zero — the charges and the deposit that settled them.
+                Anything that will not balance is a genuine gap, not a rounding problem. Where a
+                <b> batch</b> reference is shown, the processor has already told us which lines
+                settled together.
+              </p>
             </div>
           )}
         </>
