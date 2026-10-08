@@ -19,7 +19,7 @@ const num = v => Number(v) || 0
  * against the journal entry belongs to that entry, not to this row.
  */
 
-export default function DocumentList({ txnId, onChanged, onCount }) {
+export default function DocumentList({ txnId, onChanged, onCount, readOnly = false }) {
   const [docs, setDocs] = useState(null)
   const [err, setErr] = useState('')
 
@@ -57,7 +57,7 @@ export default function DocumentList({ txnId, onChanged, onCount }) {
                   <span className="muted" style={{ fontSize: 11 }}> · filed against the journal entry</span>
                 )}
 
-                {d.own_transaction && d.receipt_id && (
+                {!readOnly && d.own_transaction && d.receipt_id && (
                   <ThisIsA txnId={txnId} receiptId={d.receipt_id}
                            value={d.reviewer_class}
                            onDone={async () => { await load(); if (onChanged) onChanged() }} />
