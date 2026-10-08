@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { rpc } from './supabase.js'
+import { rpc, supabase } from './supabase.js'
 import { money, today } from './format.js'
 
 const num = v => Number(v) || 0
@@ -23,6 +23,38 @@ export default function Gst() {
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState('')
   const [tick, setTick] = useState(0)          // forces a reload after a write
+  const [scopes, setScopes] = useState({ props: [], biz: [] })
+
+  // The return is the proprietor's, so the useful views are a proprietor (all of
+  // their businesses together — what gets filed) or one business (what each
+  // ledger carries). The values are the scopes gst_scope_businesses() takes:
+  // 'ALL', 'prop:<uuid>', 'biz:<code>'. Only kind = 'business' counts — PER and
+  // HSE are not registrants' trades and would be excluded by the function anyway.
+  useEffect(() => {
+    Promise.all([
+      supabase.from('proprietors').select('id,name,gst_frequency').order('name'),
+      supabase.from('businesses').select('code,name,proprietor_id')
+        .eq('active', true).eq('kind', 'business').order('code'),
+    ]).then(([p, b]) => {
+      const biz = b.data || []
+      setScopes({
+        props: (p.data || []).map(r => ({
+          ...r, codes: biz.filter(x => x.proprietor_id === r.id).map(x => x.code),
+        })).filter(r => r.codes.length),
+        biz,
+      })
+    })
+  }, [])
+
+  // A quarter picker, because Troy files quarterly and the period is the first
+  // thing that has to be right.
+  const year = Number(to.slice(0, 4)) || new Date().getFullYear()
+  const quarters = [1, 2, 3, 4].map(q => {
+    const f = `${year}-${String(q * 3 - 2).padStart(2, '0')}-01`
+    const end = new Date(Date.UTC(year, q * 3, 0)).toISOString().slice(0, 10)
+    return { q, f, end }
+  })
+  const curQ = quarters.find(x => x.f === from && x.end === to)
 
   useEffect(() => {
     setData(null); setErr('')
@@ -60,8 +92,27 @@ export default function Gst() {
         <input id="gsFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="gsTo">To</label>
         <input id="gsTo" type="date" value={to} onChange={e => setTo(e.target.value)} />
+        <select value={curQ ? curQ.q : ''} title="Set the dates to a calendar quarter"
+                onChange={e => { const x = quarters.find(r => r.q === Number(e.target.value)); if (x) { setFrom(x.f); setTo(x.end) } }}>
+          <option value="">Quarter…</option>
+          {quarters.map(x => <option key={x.q} value={x.q}>{year} Q{x.q}</option>)}
+        </select>
         <select value={scope} onChange={e => setScope(e.target.value)}>
           <option value="ALL">All proprietors</option>
+          {scopes.props.length > 0 && (
+            <optgroup label="Proprietor — what gets filed">
+              {scopes.props.map(p => (
+                <option key={p.id} value={'prop:' + p.id}>
+                  {p.name} ({p.codes.join(' + ')}){p.gst_frequency ? ' · ' + p.gst_frequency : ''}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {scopes.biz.length > 0 && (
+            <optgroup label="One business">
+              {scopes.biz.map(b => <option key={b.code} value={'biz:' + b.code}>{b.code} — {b.name}</option>)}
+            </optgroup>
+          )}
         </select>
       </div>
 

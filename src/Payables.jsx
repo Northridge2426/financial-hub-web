@@ -406,11 +406,14 @@ export default function Payables() {
               </td></tr>
             )}
             {rows.flatMap(r => {
-              const key = r.receipt_id + r.doc_date
-              const shown = open === r.receipt_id
+              // One document can be payable by more than one entity — a GST return is
+              // split between BRA and BMS — so the document alone is not a unique row.
+              // A shared key made React draw one entity's row twice and drop the other.
+              const key = r.receipt_id + '|' + r.business + '|' + r.doc_date
+              const shown = open === key
               return [
                 <tr key={key} className={'drill' + (shown ? ' rowsel' : '')}
-                    onClick={() => setOpen(shown ? null : r.receipt_id)}>
+                    onClick={() => setOpen(shown ? null : key)}>
                   <td><span className="pill">{r.business}</span></td>
                   <td className="muted">{r.doc_no}</td>
                   <td>
