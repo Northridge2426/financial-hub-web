@@ -357,3 +357,9 @@ input.ovbal.changed { border-color: var(--warn); background: #fffbeb; }
   input.ovbal { border: 0; background: none; width: 90px; }
   .card, .stat, .note { break-inside: avoid; }
 }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 7px 7px 0; }
+.seg button.on { background: #eef2ff; color: var(--accent); border-color: #c7d2fe; position: relative; font-weight: 600; }
+.ovtip .tipwhy { font-size: 10.5px; color: var(--muted); margin: -1px 0 3px 16px; }

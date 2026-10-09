@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, supabase } from './supabase.js'
 import { money, today, shortDate } from './format.js'
 import { useEntities } from './useEntities.js'
@@ -63,20 +63,6 @@ const daysBetween = (a, b) => {
   return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000)
 }
 
-/** The last day of every month from `from` up to, not including, `to`'s month — then `to` itself. */
-function graphDates(from, to) {
-  const out = []
-  let [y, m] = from.split('-').map(Number)
-  const [ty, tm] = to.split('-').map(Number)
-  while (y < ty || (y === ty && m < tm)) {
-    const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
-    out.push(`${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`)
-    if (++m > 12) { m = 1; y++ }
-  }
-  out.push(to)
-  return out
-}
-
 const shortMoney = v => {
   const a = Math.abs(v), s = v < 0 ? '−' : ''
   if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M'
@@ -129,7 +115,7 @@ export default function Overview() {
   const [pickedGroups, setPickedGroups] = useState([])
   const [netTick, setNetTick] = useState(false)
   const [chartOpen, setChartOpen] = useState(false)
-  const [chartFrom, setChartFrom] = useState('2026-01-01')
+  const [chartFrom, setChartFrom] = useState('')   // '' = all history
 
   useEffect(() => {
     let live = true
@@ -760,40 +746,48 @@ function EditPosition({ row, classes, accounts, entities, onSave, onCancel }) {
  * typed ones. A date with no balance recorded is a gap in the line, not a zero.
  */
 function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, setNet, onClear, onClose }) {
-  const cache = useRef(new Map())
   const colours = useRef(new Map())
-  const [data, setData] = useState(null)
+  const [hist, setHist] = useState(null)          // { asOf, dates[], at: Map(date -> Map(id -> point)) }
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const [asTable, setAsTable] = useState(false)
   const [hover, setHover] = useState(null)
   const svgRef = useRef(null)
 
-  const dates = useMemo(() => graphDates(from < asOf ? from : asOf, asOf), [from, asOf])
-
-  const load = useCallback(async () => {
+  // One call returns every account's month-end balance across all the history
+  // held — statements where they exist, the old spreadsheet's figures before
+  // that. Fetched once per As-at date; changing the range or the ticks after
+  // that is instant.
+  useEffect(() => {
+    if (hist?.asOf === asOf) return
+    let live = true
     setLoading(true); setErr('')
-    try {
-      const need = dates.filter(d => !cache.current.has(d))
-      for (let i = 0; i < need.length; i += 6) {
-        const batch = need.slice(i, i + 6)
-        const res = await Promise.all(batch.map(d =>
-          rpc('financial_overview', { p_as_of: d, p_include_hidden: true })))
-        batch.forEach((d, k) => cache.current.set(d, new Map(res[k].map(x => [x.position_id, x]))))
-      }
-      setData(Date.now())
-    } catch (e) { setErr(e.message) }
-    setLoading(false)
-  }, [dates])
+    rpc('web_position_history', { p_from: null, p_to: asOf, p_ids: null })
+      .then(res => {
+        if (!live) return
+        const at = new Map()
+        for (const x of res) {
+          let m = at.get(x.as_of)
+          if (!m) at.set(x.as_of, m = new Map())
+          m.set(x.position_id, x)
+        }
+        setHist({ asOf, dates: [...at.keys()].sort(), at })
+      })
+      .catch(e => { if (live) setErr(e.message) })
+      .finally(() => { if (live) setLoading(false) })
+    return () => { live = false }
+  }, [asOf, hist])
 
-  useEffect(() => { load() }, [load])
+  const dates = useMemo(() => (hist?.dates || []).filter(d => !from || d >= from), [hist, from])
+  const data = hist && dates.length ? hist : null
 
   const series = useMemo(() => {
     if (!data) return []
     const valAt = (d, id) => {
-      const x = cache.current.get(d)?.get(id)
+      const x = hist.at.get(d)?.get(id)
       return !x || x.basis === NO_BALANCE ? null : num(x.balance)
     }
+    const basisAt = (d, id) => hist.at.get(d)?.get(id)?.basis || ''
     const sumAt = (d, ids) => {
       let s = 0, n = 0
       for (const id of ids) { const v = valAt(d, id); if (v != null) { s += v; n++ } }
@@ -810,7 +804,7 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
     for (const id of picked) {
       const r = rows.find(x => x.position_id === id)
       if (!r) continue
-      out.push({ key: id, name: r.name, pts: dates.map(d => valAt(d, id)) })
+      out.push({ key: id, name: r.name, pts: dates.map(d => valAt(d, id)), why: dates.map(d => basisAt(d, id)) })
     }
     // Colour follows the series, not its position: unticking one never repaints the rest.
     const keys = new Set(out.map(s => s.key))
@@ -824,7 +818,7 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
       s.colour = colours.current.get(s.key)
     }
     return out
-  }, [data, dates, rows, picked, pickedGroups, net])
+  }, [data, hist, dates, rows, picked, pickedGroups, net])
 
   const drawn = series.filter(s => s.colour)
   const dropped = series.length - drawn.length
@@ -860,6 +854,13 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
   }
 
   const nothing = !picked.length && !pickedGroups.length && !net
+  const yr = Number(asOf.slice(0, 4))
+  const ranges = [
+    ['All', ''],
+    ['3 years', `${yr - 3}${asOf.slice(4)}`],
+    ['1 year', `${yr - 1}${asOf.slice(4)}`],
+    ['This year', `${yr}-01-01`],
+  ]
 
   return (
     <div className="card ovchart">
@@ -867,8 +868,14 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
         <h2 style={{ margin: 0 }}>Balance history</h2>
         <span style={{ flex: 1 }} />
         <label className="chk"><input type="checkbox" checked={net} onChange={e => setNet(e.target.checked)} /> Net worth</label>
+        <span className="seg">
+          {ranges.map(([label, v]) => (
+            <button key={label} className={'mini' + (from === v ? ' on' : '')} onClick={() => setFrom(v)}>{label}</button>
+          ))}
+        </span>
         <label htmlFor="ovFrom" className="muted" style={{ fontSize: 12 }}>From</label>
-        <input id="ovFrom" type="date" value={from} max={asOf} onChange={e => e.target.value && setFrom(e.target.value)} style={{ width: 150 }} />
+        <input id="ovFrom" type="date" value={from || (hist?.dates[0] || '')} max={asOf}
+               onChange={e => setFrom(e.target.value)} style={{ width: 150 }} />
         <button className="mini" onClick={() => setAsTable(t => !t)}>{asTable ? 'Show graph' : 'Show as table'}</button>
         <button className="mini" onClick={onClear}>Clear ticks</button>
         <button className="mini" onClick={onClose}>Close</button>
@@ -876,8 +883,10 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
       {err && <div className="err">{err}</div>}
       {nothing ? (
         <div className="muted" style={{ padding: '18px 0' }}>Tick accounts, a group heading, or Net worth.</div>
-      ) : !data || (loading && !series.length) ? (
-        <div className="loading">Reading balances at {dates.length} dates…</div>
+      ) : loading || !hist ? (
+        <div className="loading">Reading balance history…</div>
+      ) : !data ? (
+        <div className="muted" style={{ padding: '18px 0' }}>No history in that range.</div>
       ) : asTable ? (
         <div style={{ overflowX: 'auto' }}>
           <table className="ovchtable">
@@ -940,12 +949,15 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
           {hover && (
             <div className={'ovtip' + (hover.flip ? ' flip' : '')} style={{ left: hover.left + 12 }}>
               <div className="tipdate">{dates[hover.i]}</div>
-              {drawn.map(s => ({ s, v: s.pts[hover.i] }))
+              {drawn.map(s => ({ s, v: s.pts[hover.i], why: s.why?.[hover.i] }))
                 .sort((a, b) => (b.v ?? -Infinity) - (a.v ?? -Infinity))
-                .map(({ s, v }) => (
-                  <div key={s.key} className="tiprow">
-                    <i style={{ background: s.colour }} /> <span>{s.name}</span>
-                    <b className={v < 0 ? 'neg' : ''}>{v == null ? '—' : signed(v)}</b>
+                .map(({ s, v, why }) => (
+                  <div key={s.key}>
+                    <div className="tiprow">
+                      <i style={{ background: s.colour }} /> <span>{s.name}</span>
+                      <b className={v < 0 ? 'neg' : ''}>{v == null ? '—' : signed(v)}</b>
+                    </div>
+                    {why && v != null && <div className="tipwhy">{why}</div>}
                   </div>
                 ))}
             </div>
@@ -960,8 +972,10 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
             })}
           </div>
           <div className="hint" style={{ marginTop: 4 }}>
-            Month-end balances, {dates[0]} to {dates[dates.length - 1]}. Typed accounts hold their last
-            entered figure until the next one; a gap means nothing was recorded yet.
+            Month-end balances, {dates[0]} to {dates[dates.length - 1]} ({dates.length} points). Accounts
+            tracked from statements use them from the first statement on, and the old spreadsheet’s
+            figures before that; typed accounts hold each entered figure until the next. A gap means
+            nothing was recorded yet.
             {pickedGroups.length > 0 && ' A group line sums whichever of its accounts had a balance on that date.'}
             {dropped > 0 && <b className="neg"> {dropped} more ticked than the graph can show — eight at most.</b>}
           </div>
