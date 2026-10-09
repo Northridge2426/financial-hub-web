@@ -9,6 +9,43 @@ import { useEntities } from './useEntities.js'
 const num = v => Number(v) || 0
 
 /**
+ * How the outstanding list is ordered. Sorting happens here, not in the query:
+ * every open invoice is already loaded, so re-asking the database to reorder
+ * the same rows would only add a round trip. Blank dates and vendors go last in
+ * every order — a payable missing its date is the one to find and fix, not one
+ * to have float to the top looking like the oldest.
+ */
+const SORTS = {
+  entity:   { label: 'By entity',                 by: ['business', 'date', 'vendor'] },
+  oldest:   { label: 'Invoice date — oldest first', by: ['date', 'vendor'] },
+  newest:   { label: 'Invoice date — newest first', by: ['-date', 'vendor'] },
+  vendor:   { label: 'By vendor',                 by: ['vendor', 'date'] },
+}
+const SORT_KEY = 'payables.sort'
+const cmpText = (a, b) => {
+  if (!a && !b) return 0
+  if (!a) return 1
+  if (!b) return -1
+  return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
+}
+const field = { business: r => r.business, date: r => r.doc_date, vendor: r => r.doc_vendor }
+function sortRows(rows, sort) {
+  const by = (SORTS[sort] || SORTS.entity).by
+  return [...rows].sort((x, y) => {
+    for (const k of by) {
+      const desc = k[0] === '-'
+      const get = field[desc ? k.slice(1) : k]
+      const a = get(x), b = get(y)
+      // blanks last whichever way the dates run
+      if (!a || !b) { const c = cmpText(a, b); if (c) return c; continue }
+      const c = cmpText(a, b)
+      if (c) return desc ? -c : c
+    }
+    return 0
+  })
+}
+
+/**
  * One payable opened up: how it was coded, and a way to code it again.
  *
  * The page could say what was owed and nothing about where the cost went, so a
@@ -263,6 +300,16 @@ export default function Payables() {
   const [invJno, setInvJno] = useState('')
   const [allowDiff, setAllowDiff] = useState(false)
   const [open, setOpen] = useState(null)   // receipt_id of the row showing its coding
+  // Remembered per browser: pages mount fresh on every switch, so without this
+  // the choice would reset each time you came back. Storage can be blocked, so
+  // a failure just means the default.
+  const [sort, setSortState] = useState(() => {
+    try { const v = localStorage.getItem(SORT_KEY); return SORTS[v] ? v : 'entity' } catch { return 'entity' }
+  })
+  const setSort = v => {
+    setSortState(v)
+    try { localStorage.setItem(SORT_KEY, v) } catch { /* not remembered, still sorted */ }
+  }
 
   // named so re-coding an invoice can refresh the balances without a full page
   // reload, which would also close the row you are looking at
@@ -298,6 +345,7 @@ export default function Payables() {
   const total = rows.reduce((a, r) => a + Number(r.balance || 0), 0)
   const overdue = rows.filter(r => Number(r.days_overdue) > 0)
   const offBy = control.filter(c => Math.abs(Number(c.difference)) > 0.01)
+  const shownRows = sortRows(rows, sort)
 
   /**
    * Repair: a payment posted here and an invoice posted here that nobody joined.
@@ -384,6 +432,13 @@ export default function Payables() {
         </div>
       )}
 
+      <div className="bar">
+        <label htmlFor="apSort" className="muted" style={{ fontSize: 12 }}>Sort</label>
+        <select id="apSort" value={sort} onChange={e => setSort(e.target.value)}>
+          {Object.entries(SORTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+      </div>
+
       <div className="card">
         <table>
           <thead>
@@ -405,7 +460,7 @@ export default function Payables() {
                 Nothing outstanding. Invoices appear here once booked to payables.
               </td></tr>
             )}
-            {rows.flatMap(r => {
+            {shownRows.flatMap(r => {
               // One document can be payable by more than one entity — a GST return is
               // split between BRA and BMS — so the document alone is not a unique row.
               // A shared key made React draw one entity's row twice and drop the other.
