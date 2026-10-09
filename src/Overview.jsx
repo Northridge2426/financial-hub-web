@@ -554,6 +554,13 @@ export default function Overview() {
   )
 }
 
+/** A legend key: a filled square, or a dashed stroke for the sum line. */
+function Swatch({ s }) {
+  return s.dashed
+    ? <i className="dashkey" style={{ borderTopColor: s.colour }} />
+    : <i style={{ background: s.colour }} />
+}
+
 function Usage({ pct: p }) {
   const v = Math.max(0, num(p))
   const tone = v >= 90 ? 'bad' : v >= 75 ? 'warn' : ''
@@ -752,7 +759,9 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
   const [err, setErr] = useState('')
   const [asTable, setAsTable] = useState(false)
   const [hover, setHover] = useState(null)
+  const [sumTick, setSumTick] = useState(false)
   const svgRef = useRef(null)
+  const canSum = picked.length + pickedGroups.length >= 2
 
   // One call returns every account's month-end balance across all the history
   // held — statements where they exist, the old spreadsheet's figures before
@@ -806,6 +815,16 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
       if (!r) continue
       out.push({ key: id, name: r.name, pts: dates.map(d => valAt(d, id)), why: dates.map(d => basisAt(d, id)) })
     }
+    // The ticked groups and accounts added together. Each account counts once:
+    // ticking a card AND the Credit cards group must not add that card twice.
+    // Net worth is left out — it is already a total of everything.
+    if (sumTick && canSum) {
+      const ids = new Set(picked.filter(id => rows.some(r => r.position_id === id)))
+      for (const g of pickedGroups) rows.filter(r => r.group_code === g).forEach(r => ids.add(r.position_id))
+      const overlap = picked.length + pickedGroups.reduce((a, g) => a + rows.filter(r => r.group_code === g).length, 0) - ids.size
+      out.push({ key: 'sum', name: 'Sum of ticked', dashed: true, overlap,
+                 pts: dates.map(d => sumAt(d, [...ids])) })
+    }
     // Colour follows the series, not its position: unticking one never repaints the rest.
     const keys = new Set(out.map(s => s.key))
     for (const k of [...colours.current.keys()]) if (!keys.has(k)) colours.current.delete(k)
@@ -818,7 +837,7 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
       s.colour = colours.current.get(s.key)
     }
     return out
-  }, [data, hist, dates, rows, picked, pickedGroups, net])
+  }, [data, hist, dates, rows, picked, pickedGroups, net, sumTick, canSum])
 
   const drawn = series.filter(s => s.colour)
   const dropped = series.length - drawn.length
@@ -867,6 +886,12 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
       <div className="ovchartbar noprint">
         <h2 style={{ margin: 0 }}>Balance history</h2>
         <span style={{ flex: 1 }} />
+        <label className="chk" title={canSum ? 'Add a line that totals every ticked group and account'
+                                              : 'Tick at least two groups or accounts to add them together'}
+               style={canSum ? undefined : { opacity: .5 }}>
+          <input type="checkbox" checked={sumTick && canSum} disabled={!canSum}
+                 onChange={e => setSumTick(e.target.checked)} /> Sum of ticked
+        </label>
         <label className="chk"><input type="checkbox" checked={net} onChange={e => setNet(e.target.checked)} /> Net worth</label>
         <span className="seg">
           {ranges.map(([label, v]) => (
@@ -929,7 +954,8 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
                 <g key={s.key}>
                   {segs.map((p, k) => p.length > 1
                     ? <polyline key={k} points={p.map(q => q.join(',')).join(' ')} fill="none" stroke={s.colour}
-                                strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                                strokeWidth={s.dashed ? 2.5 : 2} strokeDasharray={s.dashed ? '7 4' : undefined}
+                                strokeLinejoin="round" strokeLinecap={s.dashed ? 'butt' : 'round'} />
                     : <circle key={k} cx={p[0][0]} cy={p[0][1]} r="3" fill={s.colour} />)}
                   {hover && s.pts[hover.i] != null && (
                     <circle cx={x(hover.i)} cy={y(s.pts[hover.i])} r="4.5" fill={s.colour} stroke="#fff" strokeWidth="2" />
@@ -954,7 +980,7 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
                 .map(({ s, v, why }) => (
                   <div key={s.key}>
                     <div className="tiprow">
-                      <i style={{ background: s.colour }} /> <span>{s.name}</span>
+                      <Swatch s={s} /> <span>{s.name}</span>
                       <b className={v < 0 ? 'neg' : ''}>{v == null ? '—' : signed(v)}</b>
                     </div>
                     {why && v != null && <div className="tipwhy">{why}</div>}
@@ -966,7 +992,7 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
             {drawn.map(s => {
               const last = [...s.pts].reverse().find(v => v != null)
               return (
-                <span key={s.key}><i style={{ background: s.colour }} />{s.name}
+                <span key={s.key}><Swatch s={s} />{s.name}
                   <span className="muted"> {last == null ? '—' : signed(last)}</span></span>
               )
             })}
@@ -977,6 +1003,8 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
             figures before that; typed accounts hold each entered figure until the next. A gap means
             nothing was recorded yet.
             {pickedGroups.length > 0 && ' A group line sums whichever of its accounts had a balance on that date.'}
+            {drawn.some(s => s.key === 'sum') && ' The dashed line adds up everything ticked'
+              + (drawn.find(s => s.key === 'sum').overlap > 0 ? ', counting an account once even where it is also inside a ticked group.' : '.')}
             {dropped > 0 && <b className="neg"> {dropped} more ticked than the graph can show — eight at most.</b>}
           </div>
         </div>

@@ -363,3 +363,7 @@ input.ovbal.changed { border-color: var(--warn); background: #fffbeb; }
 .seg button:last-child { border-radius: 0 7px 7px 0; }
 .seg button.on { background: #eef2ff; color: var(--accent); border-color: #c7d2fe; position: relative; font-weight: 600; }
 .ovtip .tipwhy { font-size: 10.5px; color: var(--muted); margin: -1px 0 3px 16px; }
+.tiprow i.dashkey, .ovlegend i.dashkey {
+  width: 16px; height: 0; border-radius: 0; background: none;
+  border-top: 2.5px dashed; align-self: center;
+}
