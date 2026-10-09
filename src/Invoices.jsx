@@ -154,7 +154,7 @@ export default function Invoices() {
       // found in a queue later.
       try {
         const f = await rpc('invoice_followup', { p_receipt: sel })
-        if (f && f.length) { setFollowup(f); setRows(rs => rs.filter(r => r.id !== sel)); setLines(null); setBusy(''); return }
+        if (f && f.length) { setFollowup(f.map(x => ({ ...x, invoice_id: sel }))); setRows(rs => rs.filter(r => r.id !== sel)); setLines(null); setBusy(''); return }
       } catch { /* a suggestion must never block a booking */ }
 
       await load()
@@ -162,12 +162,24 @@ export default function Invoices() {
     setBusy('')
   }
 
+  /**
+   * "That paid it" means two different things depending on the payment.
+   *
+   * No entry on it yet (the usual case — a slip the sweep filed, often on a
+   * provisional): attach the invoice to that payment and write the settling
+   * side, Dr 2100 / Cr the card. apply_invoice_to_payment does both or neither.
+   *
+   * Already carrying an entry: only confirming it is left, which is what
+   * accept_invoice_payment does. This button used to call that one in BOTH
+   * cases, and it refuses a payment with no entry — so it failed every time it
+   * was offered, and was hidden in the one case it would have worked.
+   */
   async function acceptPayment(f) {
     setBusy(f.receipt_id); setErr('')
     try {
-      const r = await rpc('accept_invoice_payment', {
-        p_txn: f.txn_id, p_receipt: f.receipt_id,
-      })
+      const r = f.has_entry
+        ? await rpc('accept_invoice_payment', { p_txn: f.txn_id, p_receipt: f.receipt_id })
+        : await rpc('apply_invoice_to_payment', { p_invoice: f.invoice_id, p_txn: f.txn_id })
       setMsg(typeof r === 'string' ? r : 'Accepted.')
       setFollowup(fs => fs.filter(x => x.receipt_id !== f.receipt_id))
     } catch (e) { setErr(e.message) }
@@ -217,12 +229,15 @@ export default function Invoices() {
                     {f.storage_path && <DocLink path={f.storage_path} label="copy path" />}
                   </td>
                   <td style={{ width: 150 }}>
-                    {f.txn_id && !f.has_entry && (
-                      <button disabled={busy === f.receipt_id} onClick={() => acceptPayment(f)}>
-                        {busy === f.receipt_id ? 'Accepting…' : 'That paid it'}
+                    {f.txn_id && !f.reviewed && (
+                      <button disabled={busy === f.receipt_id} onClick={() => acceptPayment(f)}
+                              title={f.has_entry
+                                ? 'The payment already carries its entry — this marks it reviewed.'
+                                : 'Attach this invoice to that payment and write Dr 2100 / Cr the card.'}>
+                        {busy === f.receipt_id ? 'Applying…' : 'That paid it'}
                       </button>
                     )}
-                    {f.has_entry && <span className="pill soft">already posted</span>}
+                    {f.txn_id && f.reviewed && <span className="pill soft">already posted</span>}
                   </td>
                 </tr>
               ))}
