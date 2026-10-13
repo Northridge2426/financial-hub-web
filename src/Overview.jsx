@@ -771,14 +771,20 @@ function OverviewChart({ rows, asOf, from, setFrom, picked, pickedGroups, net, s
     if (hist?.asOf === asOf) return
     let live = true
     setLoading(true); setErr('')
-    rpc('web_position_history', { p_from: null, p_to: asOf, p_ids: null })
+    // One row per account with its whole history in arrays. PostgREST caps a
+    // reply at 1,000 rows and truncates without saying so; one row per account
+    // per month (the first version) lost two thirds of the accounts that way.
+    rpc('web_position_series', { p_from: null, p_to: asOf, p_ids: null })
       .then(res => {
         if (!live) return
+        if (res.length >= 1000) throw new Error('web_position_series: reply hit the 1,000-row cap — history would be incomplete')
         const at = new Map()
-        for (const x of res) {
-          let m = at.get(x.as_of)
-          if (!m) at.set(x.as_of, m = new Map())
-          m.set(x.position_id, x)
+        for (const row of res) {
+          row.dates.forEach((d, i) => {
+            let m = at.get(d)
+            if (!m) at.set(d, m = new Map())
+            m.set(row.position_id, { balance: row.balances[i], basis: row.bases[i] })
+          })
         }
         setHist({ asOf, dates: [...at.keys()].sort(), at })
       })
