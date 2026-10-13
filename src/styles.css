@@ -367,3 +367,31 @@ input.ovbal.changed { border-color: var(--warn); background: #fffbeb; }
   width: 16px; height: 0; border-radius: 0; background: none;
   border-top: 2.5px dashed; align-self: center;
 }
+
+/* ---------- hub alert banner (13 Oct 2026) ---------- */
+.hubalert {
+  padding: 8px 16px; font-size: 13px; border-bottom: 1px solid;
+}
+.hubalert.bad  { background: #fef2f2; border-color: #fecaca; color: #7f1d1d; }
+.hubalert.warn { background: #fffbeb; border-color: #fde68a; color: #78350f; }
+.hubalert .fine { opacity: .85; font-size: 12px; }
+.hubalert-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hubalert-tag {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  padding: 1px 8px; border-radius: 999px; background: currentColor;
+}
+.hubalert.bad .hubalert-tag  { background: #b91c1c; color: #fff; }
+.hubalert.warn .hubalert-tag { background: #b45309; color: #fff; }
+.hubalert-title { font-weight: 600; }
+button.linkish {
+  border: 0; background: none; padding: 0; color: inherit; text-decoration: underline;
+  font-size: 12px; cursor: pointer;
+}
+.hubalert-list { list-style: none; margin: 8px 0 2px; padding: 0; display: grid; gap: 8px; }
+.hubalert-list li { background: rgba(255,255,255,.6); border-radius: 6px; padding: 7px 10px; }
+.hubalert-list li.b { border-left: 3px solid #b91c1c; }
+.hubalert-list li.w { border-left: 3px solid #b45309; }
+.hubalert-list .t { font-weight: 600; }
+.hubalert-list .d { margin-top: 3px; font-size: 12.5px; }
+.hubalert-list .m { margin-top: 4px; font-size: 11.5px; opacity: .8; }
+.hubalert-list a { color: inherit; }

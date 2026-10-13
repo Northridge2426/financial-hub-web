@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import SignIn from './SignIn.jsx'
+import HubAlerts from './HubAlerts.jsx'
 
 import QuickReview from './QuickReview.jsx'
 import AllOutstanding from './AllOutstanding.jsx'
@@ -267,6 +268,8 @@ export default function App() {
         <span className="spacer" />
         <span className="build" title={`Built ${__BUILT_AT__} UTC`}>{__BUILD__}</span>
       </nav>
+
+      <HubAlerts refreshKey={pageKey} onGo={pick} />
 
       <div className="crumb">{current.label}</div>
 
