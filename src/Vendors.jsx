@@ -4,6 +4,7 @@ import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import DocLink from './DocLink.jsx'
 import DocumentList from './DocumentList.jsx'
+import ItemCoding from './ItemCoding.jsx'
 
 const num = v => Number(v) || 0
 
@@ -33,6 +34,7 @@ export default function Vendors() {
   const [activity, setActivity] = useState(null)
   const [actErr, setActErr] = useState('')
   const [docsOpen, setDocsOpen] = useState(null)
+  const [codingOpen, setCodingOpen] = useState(null)
   const [onlyDocs, setOnlyDocs] = useState(false)
   const entities = useEntities()
 
@@ -53,7 +55,7 @@ export default function Vendors() {
 
   async function toggle(r) {
     if (open === r.vendor_key) { setOpen(null); return }
-    setOpen(r.vendor_key); setActivity(null); setActErr(''); setDocsOpen(null)
+    setOpen(r.vendor_key); setActivity(null); setActErr(''); setDocsOpen(null); setCodingOpen(null)
     try {
       setActivity(await rpc('vendor_activity', {
         p_vendor_key: r.vendor_key,
@@ -75,7 +77,7 @@ export default function Vendors() {
     <div className="page">
       <p className="hint">
         Who you pay, how much, and what is still open. Click a vendor to see everything booked
-        against them.
+        against them, and click any item to see how it was coded.
       </p>
 
       <div className="bar">
@@ -173,10 +175,12 @@ export default function Vendors() {
                           {activity.filter(a => !onlyDocs || a.storage_path).map((a, i) => {
                             const k = (a.transaction_id || a.receipt_id || 'row') + '-' + i
                             const shut = docsOpen !== k
+                            const coded = codingOpen === k
                             return (
                             <Fragment key={k}>
-                            <tr>
-                              <td>{a.entry_date}</td>
+                            <tr className="drill" title="Click to see how this was coded"
+                                onClick={() => setCodingOpen(coded ? null : k)}>
+                              <td><span className="caretw">{coded ? '▾' : '▸'}</span> {a.entry_date}</td>
                               <td><span className="pill">{a.kind}</span></td>
                               <td className="muted">{a.entity || ''}</td>
                               <td className="muted">{a.txn_ref || ''}</td>
@@ -186,7 +190,7 @@ export default function Vendors() {
                               </td>
                               <td className="money">${money(a.amount)}</td>
                               <td style={{ fontSize: 12 }}>{a.paid_from || ''}</td>
-                              <td style={{ whiteSpace: 'nowrap' }}>
+                              <td style={{ whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                                 {a.storage_path
                                   ? <DocLink path={a.storage_path} label="copy path" />
                                   : <span className="muted" style={{ fontSize: 11 }}
@@ -205,6 +209,13 @@ export default function Vendors() {
                                 )}
                               </td>
                             </tr>
+                            {coded && (
+                              <tr className="expand">
+                                <td colSpan={8}>
+                                  <ItemCoding txnId={a.transaction_id} receiptId={a.receipt_id} />
+                                </td>
+                              </tr>
+                            )}
                             {!shut && (
                               <tr className="expand">
                                 <td colSpan={8}>

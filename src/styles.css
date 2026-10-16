@@ -410,3 +410,6 @@ h3.cfhead span { margin-left: auto; font-variant-numeric: tabular-nums; }
 .cfdebt { margin-bottom: 14px; }
 .cfdebt .stat .sub.pos { color: var(--good); }
 .cfdebt .stat .sub.neg { color: var(--bad); }
+.coding .codinggroup { margin-bottom: 10px; }
+.coding .codinghead { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; margin: 2px 0 4px; }
+.coding table { font-size: 12px; background: var(--card); }
