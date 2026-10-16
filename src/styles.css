@@ -395,3 +395,15 @@ button.linkish {
 .hubalert-list .d { margin-top: 3px; font-size: 12.5px; }
 .hubalert-list .m { margin-top: 4px; font-size: 11.5px; opacity: .8; }
 .hubalert-list a { color: inherit; }
+
+/* ---------- cash flow (16 Oct 2026) — the console's cashflow pane ---------- */
+.cfamt { margin-left: 10px; font-weight: 640; font-variant-numeric: tabular-nums; }
+h3.cfhead {
+  display: flex; align-items: baseline; font-size: 13.5px; font-weight: 650;
+  margin: 16px 0 6px;
+}
+h3.cfhead span { margin-left: auto; font-variant-numeric: tabular-nums; }
+.cfrpt .sec table { font-size: 12.5px; }
+@media print {
+  .cfrpt .sec { break-inside: avoid; }
+}
