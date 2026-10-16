@@ -407,3 +407,6 @@ h3.cfhead span { margin-left: auto; font-variant-numeric: tabular-nums; }
 @media print {
   .cfrpt .sec { break-inside: avoid; }
 }
+.cfdebt { margin-bottom: 14px; }
+.cfdebt .stat .sub.pos { color: var(--good); }
+.cfdebt .stat .sub.neg { color: var(--bad); }

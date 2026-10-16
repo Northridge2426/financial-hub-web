@@ -130,14 +130,171 @@ function CashTable({ rows, showBiz, from, to }) {
   )
 }
 
-function GroupFolds({ groups, prefix, showBiz, from, to }) {
-  return groups.map(g => (
-    <Section key={prefix + g.code}
-             title={<>{g.label}<Amt v={g.total} /></>}
-             count={plural(g.rows.length, 'account', 'accounts')}>
-      <GroupLines rows={g.rows} showBiz={showBiz} from={from} to={to} />
-    </Section>
-  ))
+/**
+ * Combined view: a group opens to its entities first, and each entity opens to
+ * the accounts behind it — then each account to its entries. With one entity
+ * selected there is nothing to split, so the group goes straight to accounts.
+ */
+function EntityBreakdown({ rows, names, from, to }) {
+  const [open, setOpen] = useState(null)
+  const by = {}
+  for (const r of rows) {
+    const e = by[r.business] || (by[r.business] = { biz: r.business, rows: [], total: 0 })
+    e.rows.push(r); e.total += n(r.amount)
+  }
+  const list = Object.values(by).sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Entity</th>
+          <th className="num" style={{ width: '14%' }}>Accounts</th>
+          <th className="num" style={{ width: '20%' }}>Effect on cash</th>
+        </tr>
+      </thead>
+      <tbody>
+        {list.map(e => [
+          <tr key={e.biz} className="drill" onClick={() => setOpen(open === e.biz ? null : e.biz)}>
+            <td>
+              <span className="caretw">{open === e.biz ? '▾' : '▸'}</span>{' '}
+              <b>{e.biz}</b>{names[e.biz] && <span className="muted"> — {names[e.biz]}</span>}
+            </td>
+            <td className="money muted">{e.rows.length}</td>
+            <td className="money">{money(e.total)}</td>
+          </tr>,
+          open === e.biz && (
+            <tr key={e.biz + 'x'} className="expand">
+              <td colSpan={3}>
+                <GroupLines rows={e.rows} showBiz={false} from={from} to={to} />
+              </td>
+            </tr>
+          ),
+        ])}
+      </tbody>
+    </table>
+  )
+}
+
+function GroupFolds({ groups, prefix, showBiz, names, from, to }) {
+  return groups.map(g => {
+    const ents = new Set(g.rows.map(r => r.business)).size
+    return (
+      <Section key={prefix + g.code}
+               title={<>{g.label}<Amt v={g.total} /></>}
+               count={showBiz
+                 ? `${plural(ents, 'entity', 'entities')} · ${plural(g.rows.length, 'account', 'accounts')}`
+                 : plural(g.rows.length, 'account', 'accounts')}>
+        {showBiz
+          ? <EntityBreakdown rows={g.rows} names={names} from={from} to={to} />
+          : <GroupLines rows={g.rows} showBiz={false} from={from} to={to} />}
+      </Section>
+    )
+  })
+}
+
+/**
+ * What is owed on every card, line of credit, loan and mortgage at the start and
+ * end of the period (cash_flow_debt). Statement balances wherever there is a
+ * statement — the ledger cannot be trusted for this: PER has no 2025 opening, so
+ * its ledger starts every card and line of credit at zero.
+ */
+const STALE_DAYS = 45
+function staleNote(basis, to) {
+  const m = /statement to (\d{4}-\d{2}-\d{2})/.exec(basis || '')
+  if (!m || /plus movement/.test(basis)) return null
+  const days = (new Date(to) - new Date(m[1])) / 86400000
+  return days > STALE_DAYS ? m[1] : null
+}
+
+function DebtProgress({ rows, showBiz, from, to }) {
+  if (!rows.length) return null
+  const sum = (list, k) => list.reduce((a, r) => a + n(r[k]), 0)
+  const kinds = []
+  for (const r of rows) {
+    let k = kinds.find(x => x.kind === r.kind)
+    if (!k) { k = { kind: r.kind, label: r.kind_label, sort: n(r.kind_sort), rows: [] }; kinds.push(k) }
+    k.rows.push(r)
+  }
+  kinds.sort((a, b) => a.sort - b.sort)
+  const rev = rows.filter(r => r.kind === 'card' || r.kind === 'loc')
+  const ro = sum(rev, 'opening'), rc = sum(rev, 'closing')
+  const ao = sum(rows, 'opening'), ac = sum(rows, 'closing')
+  const tone = v => (v < -0.004 ? 'pos' : v > 0.004 ? 'neg' : '')
+  const chg = v => (v > 0 ? '+' : '') + money(v)
+
+  return (
+    <div className="card cfdebt">
+      <h2>Debt — what is owed, start to end of the period</h2>
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <div className="stat"><div className="n">{money(ro)}</div><div className="l">cards + lines of credit, {from}</div></div>
+        <div className="stat"><div className="n">{money(rc)}</div><div className="l">cards + lines of credit, {to}</div></div>
+        <div className="stat">
+          <div className={'n ' + tone(rc - ro)}>{chg(rc - ro)}</div>
+          <div className="l">{rc - ro <= 0 ? 'paid down' : 'added'} on cards and lines of credit</div>
+        </div>
+        <div className="stat">
+          <div className="n">{money(ac)}</div>
+          <div className="l">all debt incl. loans and mortgages</div>
+          <div className={'sub ' + tone(ac - ao)}>{chg(ac - ao)} over the period</div>
+        </div>
+      </div>
+      {kinds.map(k => {
+        const o = sum(k.rows, 'opening'), c = sum(k.rows, 'closing')
+        return (
+          <Section key={k.kind} defaultOpen={k.kind === 'card' || k.kind === 'loc'}
+                   title={<>{k.label}<Amt v={c} /></>}
+                   count={`${plural(k.rows.length, 'account', 'accounts')} · ${chg(c - o)}`}>
+            <table>
+              <thead>
+                <tr>
+                  {showBiz && <th style={{ width: '7%' }}>Entity</th>}
+                  <th>Account</th>
+                  <th className="num" style={{ width: '13%' }}>Start</th>
+                  <th className="num" style={{ width: '13%' }}>End</th>
+                  <th className="num" style={{ width: '13%' }}>Change</th>
+                  <th style={{ width: '27%' }}>Where the end figure comes from</th>
+                </tr>
+              </thead>
+              <tbody>
+                {k.rows.map((r, i) => {
+                  const stale = staleNote(r.close_basis, to)
+                  const noOpening = /^ledger/.test(r.open_basis) && Math.abs(n(r.opening)) < 0.005 && n(r.closing) < 0
+                  return (
+                    <tr key={i}>
+                      {showBiz && <td className="muted">{r.business}</td>}
+                      <td>
+                        {r.account_name || r.name} <span className="muted" style={{ fontSize: 11.5 }}>{r.number}</span>
+                        {stale && <span className="pill hold">last statement {stale}</span>}
+                        {noOpening && <span className="pill bad">no opening balance in the ledger</span>}
+                      </td>
+                      <td className="money">{money(r.opening)}</td>
+                      <td className="money">{money(r.closing)}</td>
+                      <td className={'money ' + tone(n(r.change))}>{chg(n(r.change))}</td>
+                      <td className="muted" style={{ fontSize: 11.5 }}>{r.close_basis}</td>
+                    </tr>
+                  )
+                })}
+                <tr className="total">
+                  {showBiz && <td />}
+                  <td>{k.label}</td>
+                  <td className="money">{money(o)}</td>
+                  <td className="money">{money(c)}</td>
+                  <td className={'money ' + tone(c - o)}>{chg(c - o)}</td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </Section>
+        )
+      })}
+      <p className="hint" style={{ margin: '8px 0 0' }}>
+        Balances owed, from the statements wherever the account has them — the nearest statement walked to
+        the date, as with cash. A green change is debt paid down. An account with no statement is shown from
+        the ledger and says so; one flagged "no opening balance" has no 2025 figure in the ledger, so its
+        balance is only this year's movement.
+      </p>
+    </div>
+  )
 }
 
 export default function CashFlow() {
@@ -157,8 +314,9 @@ export default function CashFlow() {
       rpc('cash_flow', args),
       rpc('cash_flow_bridge', args),
       rpc('cash_flow_unallocated', args),
+      rpc('cash_flow_debt', args),
     ])
-      .then(([cf, br, un]) => setData({ cf, br, un, biz, from, to }))
+      .then(([cf, br, un, debt]) => setData({ cf, br, un, debt, biz, from, to }))
       .catch(e => setErr(e.message))
   }, [biz, from, to, run])
 
@@ -182,12 +340,12 @@ export default function CashFlow() {
 
       {err && <div className="err">{err}</div>}
       {!data && !err && <div className="loading">Running…</div>}
-      {data && <Report {...data} />}
+      {data && <Report {...data} names={Object.fromEntries(entities.map(e => [e.code, e.name]))} />}
     </div>
   )
 }
 
-function Report({ cf, br, un, biz, from, to }) {
+function Report({ cf, br, un, debt, names, biz, from, to }) {
   const all = biz === ALL
   const opening = cf.filter(r => r.kind === 'opening')
   const closing = cf.filter(r => r.kind === 'closing')
@@ -244,6 +402,8 @@ function Report({ cf, br, un, biz, from, to }) {
       <h2 className="rpt-title">{all ? 'Combined — all entities' : biz} — cash flow</h2>
       <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>{from} to {to}</div>
 
+      <DebtProgress rows={debt || []} showBiz={all} from={from} to={to} />
+
       <Section title={<>Opening cash, per the bank<Amt v={openTot} /></>}
                count={plural(opening.length, 'account', 'accounts')}>
         <CashTable rows={opening} showBiz={all} from={from} to={to} />
@@ -251,17 +411,17 @@ function Report({ cf, br, un, biz, from, to }) {
 
       <h3 className="cfhead">Where the money came from <span>{money(srcTot)}</span></h3>
       {sources.length
-        ? <GroupFolds groups={sources} prefix="src" showBiz={all} from={from} to={to} />
+        ? <GroupFolds groups={sources} prefix="src" showBiz={all} names={names} from={from} to={to} />
         : <div className="muted empty">Nothing came in this period.</div>}
 
       <h3 className="cfhead">Where the money went <span>{money(useTot)}</span></h3>
       {uses.length
-        ? <GroupFolds groups={uses} prefix="use" showBiz={all} from={from} to={to} />
+        ? <GroupFolds groups={uses} prefix="use" showBiz={all} names={names} from={from} to={to} />
         : <div className="muted empty">Nothing went out this period.</div>}
 
       {flat.length > 0 && (
         <Section title="Moved but netted to nothing" count={plural(flat.length, 'group', 'groups')}>
-          <GroupFolds groups={flat} prefix="flat" showBiz={all} from={from} to={to} />
+          <GroupFolds groups={flat} prefix="flat" showBiz={all} names={names} from={from} to={to} />
         </Section>
       )}
 
@@ -389,7 +549,7 @@ function Report({ cf, br, un, biz, from, to }) {
         {all && <>Combined is the six sets of books added together with nothing eliminated, and an
           account number is not unique across them, so each row carries its own entity.{' '}</>}
         A group sits under "came from" or "went" by its sign this period, so credit cards move
-        sides depending on whether they were run up or paid down. Click any account row to read the
+        sides depending on whether they were run up or paid down. In the combined view a group opens to its entities, an entity to its accounts, and any account row to the
         entries behind it. If an account is in the wrong group, set <code>gl_accounts.cf_bucket</code> on it.
       </p>
     </div>
