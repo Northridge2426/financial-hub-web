@@ -277,10 +277,10 @@ function Report({ cf, br, un, biz, from, to }) {
                count={plural(brRows.length, 'account differs', 'accounts differ')}>
         <table>
           <tbody>
-            <tr><td>Bank lines never journalised</td>
+            <tr><td>Bank lines in no entry</td>
                 <td className="money" style={{ width: '20%' }}>{money(bUnc)}</td></tr>
-            <tr><td>Ledger entries that never hit that bank account — Sage imports, manual
-                    journals, entries routed in from elsewhere</td>
+            <tr><td>Ledger entries on that bank account that belong to none of its lines — manual
+                    journals and entries routed in from elsewhere</td>
                 <td className="money">{money(-bEls)}</td></tr>
             <tr><td>Timing and amount differences between the two date bases</td>
                 <td className="money">{money(bTim)}</td></tr>
@@ -296,7 +296,7 @@ function Report({ cf, br, un, biz, from, to }) {
                 <th>Account</th>
                 <th className="num" style={{ width: '13%' }}>Bank moved</th>
                 <th className="num" style={{ width: '13%' }}>Ledger moved</th>
-                <th className="num" style={{ width: '13%' }}>Not journalised</th>
+                <th className="num" style={{ width: '13%' }}>In no entry</th>
                 <th className="num" style={{ width: '15%' }}>Ledger only</th>
                 <th className="num" style={{ width: '11%' }}>Timing</th>
               </tr>
@@ -337,12 +337,14 @@ function Report({ cf, br, un, biz, from, to }) {
         <>
           <h3 className="cfhead">Not yet in the ledger <span>{money(unTot)}</span></h3>
           <p className="hint">
-            {unCount} transactions in this period carry no journal lines.{' '}
+            {unCount} transactions in this period are in no entry at all. A transfer between two
+            accounts counts as booked when either leg carries the entry, and a line linked to its
+            Sage entry or to an adjustment counts too — so what is listed here is genuinely missing.{' '}
             <b>{inBrN} of them are on a bank account</b> and make up the {money(bUnc)} first line
-            of the bridge above. The rest are on cards and lines of credit: coding those moves the
+            of the bridge above. The rest are on cards and lines of credit: booking those moves the
             expense and the card balance together and leaves bank cash alone, so they change the
-            middle of this report but not its closing figure. Lines set aside as ignored are
-            excluded from the bridge, because the bank balances exclude them too.
+            middle of this report but not its closing figure. Lines set aside as ignored are left
+            out, because the bank balances leave them out too.
           </p>
           {unGroups.map(g => (
             <Section key={'un' + g.code}
