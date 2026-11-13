@@ -5,6 +5,7 @@ import { useEntities } from './useEntities.js'
 import TxnEditor from './TxnEditor.jsx'
 import DocLink from './DocLink.jsx'
 import DateRange from './DateRange.jsx'
+import ProjectPicker from './ProjectPicker.jsx'
 
 const num = v => Number(v) || 0
 
@@ -52,14 +53,33 @@ export default function ReviewQueue({ kind: fixedKind }) {
   const [rows, setRows] = useState(null)
   const [err, setErr] = useState('')
   const [sel, setSel] = useState(null)
-  // Ticked rows, for "these are all transfers". A Set keyed by id, not an array
-  // of rows: the list reloads underneath and stale row objects would be wrong.
+  // Ticked rows, for coding several the same way or calling them transfers. A
+  // Set keyed by id, not an array of rows: the list reloads underneath and
+  // stale row objects would be wrong.
   const [ticked, setTicked] = useState(() => new Set())
   const [bulk, setBulk] = useState(false)
   const [bulkOut, setBulkOut] = useState(null)
   const entities = useEntities()
 
+  // The coding the ticked rows will all get. Kept across reloads on purpose:
+  // the usual run is "code these six, then the next four the same way".
+  const [accounts, setAccounts] = useState([])
+  const [projects, setProjects] = useState([])
+  const [bBiz, setBBiz] = useState('')
+  const [bAcct, setBAcct] = useState('')
+  const [bProj, setBProj] = useState([])
+  const [bGst, setBGst] = useState('document')
+  const [bNote, setBNote] = useState('')
+
   useEffect(() => { if (fixedKind) setKind(fixedKind) }, [fixedKind])
+
+  useEffect(() => {
+    supabase.from('v_chart_of_accounts').select('business,number,name')
+      .eq('usable', true).eq('postable', true).order('business').order('number')
+      .then(({ data }) => setAccounts(data || []))
+    supabase.from('projects').select('id,name').eq('active', true).order('name')
+      .then(({ data }) => setProjects(data || []))
+  }, [])
 
   useEffect(() => {
     // The canonical list is `vendor_routes` where route = 'group' — the same
@@ -106,6 +126,46 @@ export default function ReviewQueue({ kind: fixedKind }) {
       if (n.has(id)) n.delete(id); else n.add(id)
       return n
     })
+  }
+
+  const tickedRows = (rows || []).filter(r => ticked.has(r.id))
+  const tickedTotal = tickedRows.reduce(
+    (a, r) => a + (r.direction === 'inflow' ? -1 : 1) * num(r.amount), 0)
+  const allTicked = !!rows && rows.length > 0 && rows.every(r => ticked.has(r.id))
+  const tickAll = () => setTicked(allTicked ? new Set() : new Set(rows.map(r => r.id)))
+  const bAccounts = accounts.filter(a => a.business === bBiz)
+
+  /**
+   * Code every ticked row the same way, in one call.
+   *
+   * web_bulk_code() builds each entry server-side — the cost line on the
+   * entity picked here, GST if asked, and the funding side from the account
+   * each row actually sits on. When that card belongs to another entity it
+   * writes the related-party pair as well, exactly as code_statement_lines
+   * does; working that out in the browser is how one-sided entries get made.
+   *
+   * It writes through set_journal_override, the same path as a single Save, and
+   * answers per row. A row already carrying an entry, applied to an invoice,
+   * flagged as a transfer, on hold, or in a closed period is left alone and
+   * named — never overwritten, and never allowed to fail the rest.
+   */
+  async function codeTicked(markReviewed) {
+    if (!bBiz || !bAcct) { setErr('Pick the entity and account first.'); return }
+    setBulk(true); setErr(''); setBulkOut(null)
+    try {
+      const out = await rpc('web_bulk_code', {
+        p_ids: [...ticked],
+        p_business: bBiz,
+        p_account: bAcct,
+        p_projects: bProj.length ? bProj : null,
+        p_gst: bGst,
+        p_mark_reviewed: markReviewed,
+        p_note: bNote.trim() || null,
+      })
+      setBulkOut(out || [])
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBulk(false)
   }
 
   /**
@@ -166,24 +226,63 @@ export default function ReviewQueue({ kind: fixedKind }) {
       )}
 
       {/* Only ever shown when something is ticked, so it cannot be mistaken for
-          a filter. The count is the honest one — rows already carrying an entry
-          are refused by name below, not silently dropped from this number. */}
-      {ticked.size > 0 && (
-        <div className="bar" style={{ background: 'var(--sel, #f3f6ff)' }}>
+          a filter. The count is the honest one — rows the database refuses are
+          named below, not silently dropped from this number. */}
+      {ticked.size > 0 && kind !== 'reviewed' && (
+        <div className="bar bulkbar">
           <b>{ticked.size} ticked</b>
-          <button className="primary" disabled={bulk} onClick={markTransfers}>
-            {bulk ? 'Marking…' : `These ${ticked.size === 1 ? 'is a transfer' : 'are transfers'}`}
+          <span className="muted" style={{ fontSize: 12 }}>${money(Math.abs(tickedTotal))}</span>
+          <span className="sep" />
+          <label>Code them all to</label>
+          <select value={bBiz} onChange={e => { setBBiz(e.target.value); setBAcct('') }}>
+            <option value="">entity</option>
+            {entities.map(b => <option key={b.code} value={b.code}>{b.code}</option>)}
+          </select>
+          <select value={bAcct} onChange={e => setBAcct(e.target.value)}
+                  disabled={!bBiz} style={{ minWidth: 240, maxWidth: 340 }}>
+            <option value="">account</option>
+            {bAccounts.map(a => (
+              <option key={a.number} value={a.number}>{a.number} — {a.name}</option>
+            ))}
+          </select>
+          <select value={bGst} onChange={e => setBGst(e.target.value)}
+                  title="A bank line says nothing about tax. 'As on the receipt' uses the GST recorded from each row's document, and splits none out where there is no document.">
+            <option value="document">GST as on the receipt</option>
+            <option value="none">No GST split</option>
+            <option value="five">GST 5% included</option>
+          </select>
+          <ProjectPicker value={bProj} projects={projects} onChange={setBProj} />
+          <input value={bNote} onChange={e => setBNote(e.target.value)}
+                 placeholder="Note (optional)" style={{ width: 160 }} />
+          <button className="primary" disabled={bulk || !bBiz || !bAcct}
+                  onClick={() => codeTicked(true)}>
+            {bulk ? 'Coding…' : `Code ${ticked.size} and mark reviewed`}
+          </button>
+          <button disabled={bulk || !bBiz || !bAcct} onClick={() => codeTicked(false)}
+                  title="Writes the entries but leaves them in this queue to check one by one.">
+            Code, keep in queue
+          </button>
+          <span className="sep" />
+          <button disabled={bulk} onClick={markTransfers}
+                  title="Books nothing. They leave this queue for Transfers and payments, where you match both sides once both have arrived.">
+            {`These ${ticked.size === 1 ? 'is a transfer' : 'are transfers'}`}
           </button>
           <button disabled={bulk} onClick={() => setTicked(new Set())}>clear</button>
-          <span className="muted" style={{ fontSize: 11.5 }}>
-            Books nothing. They leave this queue for Transfers and payments, where you
-            match both sides once both have arrived.
-          </span>
         </div>
       )}
 
       {bulkOut && bulkOut.length > 0 && (
         <div className="note">
+          {(() => {
+            const done = bulkOut.filter(o => /^coded|^moved/.test(o.outcome)).length
+            const left = bulkOut.length - done
+            return (
+              <div style={{ marginBottom: 4 }}>
+                <b>{done} done</b>
+                {left > 0 && <span className="neg"> · {left} left alone — see why below</span>}
+              </div>
+            )
+          })()}
           {bulkOut.map((o, i) => (
             <div key={i} style={{ fontSize: 12 }}>
               <b>{o.ref}</b> — {o.outcome}
@@ -197,7 +296,10 @@ export default function ReviewQueue({ kind: fixedKind }) {
           <table>
             <thead>
               <tr>
-                <th style={{ width: 28 }} />
+                <th style={{ width: 28 }}>
+                  <input type="checkbox" checked={allTicked} onChange={tickAll}
+                         title={allTicked ? 'Untick all' : 'Tick every row shown'} />
+                </th>
                 <th style={{ width: 82 }}>Ref</th>
                 <th style={{ width: 92 }}>Date</th>
                 <th style={{ width: 56 }}>Biz</th>
@@ -216,7 +318,7 @@ export default function ReviewQueue({ kind: fixedKind }) {
                   <td onClick={e => e.stopPropagation()}>
                     <input type="checkbox" checked={ticked.has(r.id)}
                            onChange={() => tick(r.id)}
-                           title="Tick several, then say they are all transfers." />
+                           title="Tick several, then code them all the same way — or say they are transfers." />
                   </td>
                   <td className="muted">{r.ref}</td>
                   <td>{r.txn_date}</td>

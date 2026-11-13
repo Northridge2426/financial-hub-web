@@ -5,7 +5,7 @@ import { useEntities } from './useEntities.js'
 import ReceiptLines from './ReceiptLines.jsx'
 import PayablesApply from './PayablesApply.jsx'
 import DocumentList, { documentsCount } from './DocumentList.jsx'
-import Section from './Section.jsx'
+import Tabs from './Tabs.jsx'
 import ApBooked from './ApBooked.jsx'
 import ThisIsA from './ThisIsA.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
@@ -47,8 +47,14 @@ const SOURCE_LABEL = {
  * reached the ledger this way: four correct lines, no stamp, payable still
  * showing $78.75 open against a bill that was paid.
  */
-/** Which section opens first depends on the queue you are working. Documents
- *  always open when there are any — you cannot judge a row without them. */
+/** The tab last chosen, per queue, for the rest of this visit. Working a run
+ *  of rows usually means doing the same job on each, so the next row should
+ *  open where the last one was left rather than back at the first tab. */
+const lastTab = {}
+
+/** Which tab a row opens on before you have chosen one in this queue.
+ *  Documents carry a count on their tab, so a row with paper behind it says so
+ *  without having to open that tab. */
 const OPEN_FOR = {
   plain:    { entry: true },
   reopened: { entry: true },
@@ -76,7 +82,8 @@ export default function TxnEditor({ txn, kind, onDone }) {
   const [docCount, setDocCount] = useState('')
   const [apBooked, setApBooked] = useState('')
   const [applied, setApplied] = useState(null)
-  const [openEntry, setOpenEntry] = useState(0)
+  const [tab, setTab] = useState(() => lastTab[kind] || (opens.pay ? 'pay' : 'entry'))
+  const pickTab = k => { lastTab[kind] = k; setTab(k) }
   const [txnNote, setTxnNote] = useState('')
   const [bankAccounts, setBankAccounts] = useState([])
   const [xferTo, setXferTo] = useState('')
@@ -193,8 +200,8 @@ export default function TxnEditor({ txn, kind, onDone }) {
       projects: priorTags[`${l.business}|${l.gl_number}`] || [],
     })))
     setPreview(null); setProfile(''); setSeedSource('profile'); setApWarned(false)
-    setOpenEntry(n => n + 1)
-    setMsg('Filled into the draft below — every field is still editable. '
+    pickTab('entry')
+    setMsg('Filled into the Entry tab — every field is still editable. '
          + 'Change the accounts if this one was maintenance rather than fuel, '
          + 'tick any projects, then save. Check anything marked “not in this chart”.')
   }
@@ -440,6 +447,7 @@ export default function TxnEditor({ txn, kind, onDone }) {
   }
 
   const accountsFor = biz => accounts.filter(a => a.business === biz)
+  const openNotes = notes.filter(n => n.status === 'open').length
 
   return (
     <div>
@@ -448,6 +456,10 @@ export default function TxnEditor({ txn, kind, onDone }) {
         {num(txn.gst_amount) > 0 && <> · GST ${money(txn.gst_amount)}</>}
       </div>
 
+      {/* Everything that must be read BEFORE choosing a tab stays above the tab
+          bar: the hold reason, the result of the last action, and the two
+          "do not code this as an expense" warnings. Putting any of these inside
+          a tab would hide the reason not to press Save. */}
       {txn.journal_hold && txn.journal_hold_reason && (
         <div className="note warn" style={{ marginBottom: 8 }}>{txn.journal_hold_reason}</div>
       )}
@@ -479,320 +491,327 @@ export default function TxnEditor({ txn, kind, onDone }) {
         </div>
       )}
 
-      <Section title="Source documents" count={docCount} defaultOpen
-               tone={/no file/.test(docCount) ? 'warn' : ''}>
-        <DocumentList txnId={txn.id} onChanged={onDone} onCount={setDocCount} />
-      </Section>
-
-      {/* What PayPal / Apple say this was. Hidden until the reports have
-          answered, like "Booked to payables here": an empty fold on every
-          ordinary card charge would be noise. Opens by itself when there is
-          something, because it is the reason the bank descriptor can be read. */}
-      <div style={procCount ? undefined : { display: 'none' }}>
-        <Section title="What PayPal / Apple say this was" count={procCount}
-                 key={'proc' + String(!!procCount)} defaultOpen={!!procCount}
-                 tone={/not coded/.test(procCount) ? 'warn' : ''}>
-          <ProcessorDetail txnId={txn.id} accounts={accounts} entities={entities}
-                           onDone={onDone} onCount={setProcCount} />
-        </Section>
-      </div>
-
-      {txn.direction === 'outflow' && (
-        <Section title="Apply this payment to invoices" defaultOpen={!!opens.pay}>
-          <PayablesApply txn={txn} onDone={applyFinished} onPicked={setPayablesPicked} />
-        </Section>
-      )}
-
-      {/* Booked to payables here. Opens by itself when there is one: it is the
-          reason NOT to code this as an expense, so it cannot be behind a fold
-          you have to know to open. */}
-      {/* Rendered but hidden until it reports a vendor, because whether there
-          is one is only known once it has read. An empty fold header saying
-          "Booked to payables here" on a transaction with no payable behind it
-          would be a lie you have to open to disprove. */}
-      <div style={apBooked ? undefined : { display: 'none' }}>
-        <Section title="Booked to payables here" count={apBooked}
-                 key={'ap' + String(!!apBooked)} defaultOpen={!!apBooked}>
-          <ApBooked txnId={txn.id} onDone={onDone} onCount={setApBooked} />
-        </Section>
-      </div>
-
-      {/* This used to be hidden whenever the row had a document, on the theory
-          that the per-document "This is a …" in the documents fold covered it.
-          It does not: that control classifies the PIECE OF PAPER, while
-          "transfer or payment" is a fact about the TRANSACTION. A transfer
-          with a receipt attached therefore had no way to say so, and the only
-          transfer control on screen was the one below, which demands the other
-          account. Always shown now. */}
-      <div style={{ marginBottom: 8 }}>
-        <ThisIsA txnId={txn.id} onDone={onDone} label="This is a" />
-      </div>
-
-      {/* The console keeps this outside the folds: it is the exit for a row
-          that should never have been in a coding queue at all, and burying
-          it inside Entry would mean opening Entry to say "this is not one". */}
-      <div className="bar" style={{ marginBottom: 8 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 560 }}>This is a transfer to</span>
-        <select value={xferTo} onChange={e => setXferTo(e.target.value)}
-                style={{ minWidth: 200 }}>
-          <option value="">— pick the other account —</option>
-          {bankAccounts.filter(a => a.id !== txn.account_id).map(a => (
-            <option key={a.id} value={a.id}>{a.name}</option>
-          ))}
-        </select>
-        <button disabled={!xferTo || !!busy} onClick={recordTransfer}>
-          {busy === 'xfer' ? 'Recording…' : 'Record both sides'}
-        </button>
-        <span className="muted" style={{ fontSize: 11.5 }}>
-          Writes both ledgers and closes the matching charge on the other account.
-        </span>
-        {/* The destination is only needed to POST both sides now. Knowing it is
-            a transfer at all is a separate, smaller statement, and often the
-            only one you can make yet — the other side may not have arrived. */}
-        {!txn.is_transfer && (
-          <button disabled={!!busy} onClick={markTransferOnly}
-                  title="Sets the transfer flag and nothing else. The row leaves Allocate expenses for Transfers and payments, where you match both sides later.">
-            {busy === 'xferflag' ? 'Marking…' : "don't know yet — just queue it"}
+      {/* Booked to payables here: the reason NOT to code this as an expense, so
+          it is announced above the tabs rather than waiting in one. */}
+      {apBooked && (
+        <div className="note warn" style={{ marginBottom: 8 }}>
+          <b>Already booked to payables here</b> — {apBooked}.{' '}
+          <button onClick={() => pickTab('apbooked')} style={{ padding: '2px 9px', fontSize: 12 }}>
+            show it
           </button>
-        )}
-        {txn.is_transfer && txn.status !== 'reviewed' && (
-          <button disabled={!!busy} onClick={settleAgainstPair}
-                  title="Its pair already carries the entry. This posts nothing — it only says this side is finished.">
-            {busy === 'pair' ? 'Settling…' : 'Its pair settles this'}
-          </button>
-        )}
-      </div>
-
-      <Section title="The document, line by line" defaultOpen={false}>
-        <ReceiptLines
-          txnId={txn.id}
-          onBuild={built => { setLines(built.map(l => ({
-            business: l.business || '',
-            account: l.account || '',
-            debit: num(l.debit) || '',
-            credit: num(l.credit) || '',
-            basis: l.basis || '',
-            projects: l.project_ids || [],
-          }))); setSeedSource('lines'); setOpenEntry(n => n + 1) }} />
-      </Section>
-
-      {/* ---- notes: what the morning task reads ---- */}
-      <Section title="Notes" defaultOpen={false}
-               count={notes.filter(n => n.status === 'open').length
-                        ? notes.filter(n => n.status === 'open').length + ' open' : ''}>
-      <div>
-        {notes.length > 0 && (
-          <table style={{ marginBottom: 6 }}>
-            <tbody>
-              {notes.map(n => (
-                <tr key={n.id}>
-                  <td style={{ width: 92 }} className="muted">
-                    {String(n.created_at || '').slice(0, 10)}
-                  </td>
-                  <td>
-                    {n.note}
-                    {n.reply && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>↳ {n.reply}</div>}
-                  </td>
-                  <td style={{ width: 90 }}>
-                    <span className={'pill ' + (n.status === 'open' ? 'hold' : 'soft')}>{n.status}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <div className="bar" style={{ margin: 0 }}>
-          <input placeholder="Leave a note — the morning task works these" value={noteText}
-                 onChange={e => setNoteText(e.target.value)}
-                 onKeyDown={e => { if (e.key === 'Enter') addNote() }}
-                 style={{ flex: 1, minWidth: 240 }} />
-          <button disabled={!noteText.trim() || busy === 'note'} onClick={addNote}>
-            {busy === 'note' ? 'Saving…' : 'Leave a note'}
-          </button>
-        </div>
-      </div>
-      </Section>
-
-      {/* ---- allocation profile ---- */}
-      <div className="bar" style={{ margin: '0 0 8px' }}>
-        <label>Allocation</label>
-        <select value={profile} onChange={e => pickProfile(e.target.value)} style={{ minWidth: 300 }}>
-          <option value="">— apply a profile instead —</option>
-          {profiles.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
-        </select>
-        {busy === 'preview' && <span className="muted">Building it…</span>}
-        <span style={{ flex: 1 }} />
-        {suggestion.length > 0 && (
-          <span className="muted" style={{ fontSize: 12 }}>
-            {suggestion.length} prior posting{suggestion.length === 1 ? '' : 's'} for this vendor
-          </span>
-        )}
-      </div>
-
-      {preview && (
-        <div className="note">
-          <b>This is what would be posted</b>
-          <table style={{ marginTop: 6 }}>
-            <tbody>
-              {preview.map((l, i) => (
-                <tr key={i}>
-                  <td style={{ width: 60 }}><span className="pill">{l.business}</span></td>
-                  <td style={{ width: 90 }} className="muted">{l.gl_number}</td>
-                  <td>
-                    {l.gl_name || <span className="neg">not in this chart</span>}
-                    {(l.why || l.memo) && (
-                      <div className="muted" style={{ fontSize: 11 }}>{l.why || l.memo}</div>
-                    )}
-                  </td>
-                  <td className="money" style={{ width: 100 }}>{num(l.debit) ? money(l.debit) : ''}</td>
-                  <td className="money" style={{ width: 100 }}>{num(l.credit) ? money(l.credit) : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="bar" style={{ margin: '8px 0 0' }}>
-            <button className="primary" onClick={applyPreview}>Fill the draft with this</button>
-            <button onClick={() => { setPreview(null); setProfile('') }}>Discard</button>
-            <span className="muted" style={{ fontSize: 12 }}>
-              It only fills the grid — accounts, amounts and projects all stay editable,
-              and nothing is saved until you press Save.
-            </span>
-          </div>
         </div>
       )}
 
-      {/* ---- the draft, always seeded ---- */}
-      {!lines && <div className="loading">Reading…</div>}
-      {lines && (
-        <Section title="Entry" defaultOpen={!!opens.entry} openSignal={openEntry}
-                 tone={offBy.length ? 'warn' : ''}
-                 count={lines.length
-                   ? `${filled.length} line${filled.length === 1 ? '' : 's'}`
-                     + (offBy.length ? ' · does not balance' : ' · balances')
-                   : 'empty'}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            {seedSource && SOURCE_LABEL[seedSource] && (
-              <span className="muted" style={{ fontSize: 12 }}>
-                prefilled from {SOURCE_LABEL[seedSource]}
-              </span>
-            )}
-          </div>
-
-          <table style={{ marginTop: 6 }}>
-            <thead>
-              <tr>
-                <th style={{ width: 90 }}>Entity</th>
-                <th>Account</th>
-                <th className="num" style={{ width: 120 }}>Debit</th>
-                <th className="num" style={{ width: 120 }}>Credit</th>
-                <th style={{ width: 150 }}>Projects</th>
-                <th style={{ width: 36 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l, i) => (
-                <tr key={i}>
-                  <td>
-                    <select value={l.business} onChange={e => setLine(i, 'business', e.target.value)}>
-                      <option value="">—</option>
-                      {entities.map(b => <option key={b.code} value={b.code}>{b.code}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    <select value={l.account} onChange={e => setLine(i, 'account', e.target.value)}
-                            disabled={!l.business} style={{ width: '100%' }}>
-                      <option value="">—</option>
-                      {accountsFor(l.business).map(a => (
-                        <option key={a.number} value={a.number}>{a.number} — {a.name}</option>
-                      ))}
-                      {l.account && !accountsFor(l.business).some(a => a.number === l.account) && (
-                        <option value={l.account}>{l.account} — not in this chart</option>
-                      )}
-                    </select>
-                    {l.basis && <div className="muted" style={{ fontSize: 11 }}>{l.basis}</div>}
-                  </td>
-                  <td>
-                    <input type="number" step="0.01" className="num" value={l.debit}
-                           disabled={num(l.credit) > 0}
-                           onChange={e => setLine(i, 'debit', e.target.value)} />
-                  </td>
-                  <td>
-                    <input type="number" step="0.01" className="num" value={l.credit}
-                           disabled={num(l.debit) > 0}
-                           onChange={e => setLine(i, 'credit', e.target.value)} />
-                  </td>
-                  <td style={{ fontSize: 11 }}>
-                    {/* Tick boxes, not a multi-select: a line can carry several
-                        projects, and a list where ctrl-click is the only way to
-                        pick a second one reads as "choose one". */}
-                    <ProjectPicker value={l.projects} projects={projects}
-                                   onChange={v => setLine(i, 'projects', v)} />
-                  </td>
-                  <td>
-                    {lines.length > 2 && (
-                      <button onClick={() => setLines(ls => ls.filter((_, j) => j !== i))}>×</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="bar" style={{ margin: '8px 0 0' }}>
-            <button onClick={() => setLines(ls => [...ls, blank()])}>Add a line</button>
-            <button onClick={toggleSplit} disabled={!(lines || []).some(l => num(l.debit))}
-                    title="Halves every debit line and leaves the credit alone — the card was charged once.">
-              {splitState === 0 ? 'Split the debits in 2'
-                : splitState === 2 ? 'Split into 4'
-                : 'Undo the split'}
-            </button>
-            <button onClick={load}>Reset</button>
-            <span style={{ flex: 1 }} />
-            {Object.entries(perBiz).map(([b, v]) => (
-              <span key={b} className="muted" style={{ fontSize: 12 }}>
-                {b}: {money(v.d)} / {money(v.c)}
-              </span>
-            ))}
-            <button disabled={!canSave || !!busy} onClick={() => save(false)}>
-              {busy === 'save' ? 'Saving…' : 'Save'}
-            </button>
-            <button className="primary" disabled={!canSave || !!busy} onClick={() => save(true)}>
-              {busy === 'saverev' ? 'Saving…'
-                : apDebit && apWarned ? 'Save anyway — no invoice marked paid'
-                : 'Save and mark reviewed'}
-            </button>
-            <button disabled={!!busy} onClick={holdForInvoice}
-                    title="Posts nothing. Moves this to the waiting queue until an invoice is matched to it, then it comes back here.">
-              {busy === 'hold' ? 'Holding…' : 'Hold for the invoice'}
-            </button>
-          </div>
-
-          <div className="bar" style={{ margin: '8px 0 0' }}>
-            <label htmlFor="txnNote">Note</label>
-            <input id="txnNote" value={txnNote} onChange={e => setTxnNote(e.target.value)}
-                   placeholder="Saved with the entry — what this was, in your words"
-                   style={{ flex: 1, minWidth: 260 }} />
-          </div>
-
-          {offBy.length > 0 && (
-            <div className="note warn" style={{ marginTop: 8 }}>
-              <b>Not balanced.</b>{' '}
-              {offBy.map((x, i) => (
-                <span key={x.business}>
-                  {i > 0 && ' · '}{x.business} is out by {money(Math.abs(x.diff))}{' '}
-                  ({x.diff > 0 ? 'debits exceed credits' : 'credits exceed debits'})
+      <Tabs active={tab} fallback="entry" onChange={pickTab} tabs={[
+        {
+          key: 'docs', label: 'Source documents', alwaysMounted: true,
+          badge: docCount, tone: /no file/.test(docCount) ? 'warn' : '',
+          content: <DocumentList txnId={txn.id} onChanged={onDone} onCount={setDocCount} />,
+        },
+        {
+          // What PayPal / Apple say this was. Mounted from the start so it can
+          // report whether there is anything; the tab only appears when there is.
+          key: 'proc', label: 'PayPal / Apple detail', alwaysMounted: true,
+          hidden: !procCount, badge: procCount,
+          tone: /not coded/.test(procCount) ? 'warn' : '',
+          content: <ProcessorDetail txnId={txn.id} accounts={accounts} entities={entities}
+                                    onDone={onDone} onCount={setProcCount} />,
+        },
+        {
+          key: 'apbooked', label: 'Booked to payables', alwaysMounted: true,
+          hidden: !apBooked, badge: apBooked, tone: 'warn',
+          content: <ApBooked txnId={txn.id} onDone={onDone} onCount={setApBooked} />,
+        },
+        {
+          key: 'pay', label: 'Apply to invoices', hidden: txn.direction !== 'outflow',
+          badge: payablesPicked ? `${payablesPicked} ticked` : '',
+          tone: payablesPicked ? 'warn' : '',
+          content: <PayablesApply txn={txn} onDone={applyFinished} onPicked={setPayablesPicked} />,
+        },
+        {
+          // A fact about the TRANSACTION, not the paper: "transfer or payment"
+          // lives here alongside the per-document classifier, so a transfer
+          // with a receipt attached can still say what it is.
+          key: 'thisis', label: 'This is a…',
+          badge: txn.is_transfer ? 'transfer' : '',
+          content: (
+            <div>
+              <div style={{ marginBottom: 10 }}>
+                <ThisIsA txnId={txn.id} onDone={onDone} label="This is a" />
+              </div>
+              <div className="bar" style={{ margin: 0 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 560 }}>This is a transfer to</span>
+                <select value={xferTo} onChange={e => setXferTo(e.target.value)}
+                        style={{ minWidth: 200 }}>
+                  <option value="">— pick the other account —</option>
+                  {bankAccounts.filter(a => a.id !== txn.account_id).map(a => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                <button disabled={!xferTo || !!busy} onClick={recordTransfer}>
+                  {busy === 'xfer' ? 'Recording…' : 'Record both sides'}
+                </button>
+                <span className="muted" style={{ fontSize: 11.5 }}>
+                  Writes both ledgers and closes the matching charge on the other account.
                 </span>
-              ))}
-              <div className="fine">
-                Each entity has to balance on its own. An entry balancing only in total would
-                quietly move money between businesses.
+                {/* Knowing it is a transfer at all is a smaller statement than
+                    knowing where to, and often the only one you can make yet. */}
+                {!txn.is_transfer && (
+                  <button disabled={!!busy} onClick={markTransferOnly}
+                          title="Sets the transfer flag and nothing else. The row leaves Allocate expenses for Transfers and payments, where you match both sides later.">
+                    {busy === 'xferflag' ? 'Marking…' : "don't know yet — just queue it"}
+                  </button>
+                )}
+                {txn.is_transfer && txn.status !== 'reviewed' && (
+                  <button disabled={!!busy} onClick={settleAgainstPair}
+                          title="Its pair already carries the entry. This posts nothing — it only says this side is finished.">
+                    {busy === 'pair' ? 'Settling…' : 'Its pair settles this'}
+                  </button>
+                )}
               </div>
             </div>
-          )}
-        </div>
-        </Section>
-      )}
+          ),
+        },
+        {
+          key: 'lines', label: 'Document lines',
+          content: (
+            <ReceiptLines
+              txnId={txn.id}
+              onBuild={built => { setLines(built.map(l => ({
+                business: l.business || '',
+                account: l.account || '',
+                debit: num(l.debit) || '',
+                credit: num(l.credit) || '',
+                basis: l.basis || '',
+                projects: l.project_ids || [],
+              }))); setSeedSource('lines'); pickTab('entry') }} />
+          ),
+        },
+        {
+          // what the morning task reads
+          key: 'notes', label: 'Notes',
+          badge: openNotes ? `${openNotes} open` : (notes.length ? String(notes.length) : ''),
+          tone: openNotes ? 'warn' : '',
+          content: (
+            <div>
+              {notes.length > 0 && (
+                <table style={{ marginBottom: 6 }}>
+                  <tbody>
+                    {notes.map(n => (
+                      <tr key={n.id}>
+                        <td style={{ width: 92 }} className="muted">
+                          {String(n.created_at || '').slice(0, 10)}
+                        </td>
+                        <td>
+                          {n.note}
+                          {n.reply && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>↳ {n.reply}</div>}
+                        </td>
+                        <td style={{ width: 90 }}>
+                          <span className={'pill ' + (n.status === 'open' ? 'hold' : 'soft')}>{n.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div className="bar" style={{ margin: 0 }}>
+                <input placeholder="Leave a note — the morning task works these" value={noteText}
+                       onChange={e => setNoteText(e.target.value)}
+                       onKeyDown={e => { if (e.key === 'Enter') addNote() }}
+                       style={{ flex: 1, minWidth: 240 }} />
+                <button disabled={!noteText.trim() || busy === 'note'} onClick={addNote}>
+                  {busy === 'note' ? 'Saving…' : 'Leave a note'}
+                </button>
+              </div>
+            </div>
+          ),
+        },
+        {
+          key: 'alloc', label: 'Allocation',
+          badge: preview ? 'preview ready' : (suggestion.length ? `${suggestion.length} prior` : ''),
+          tone: preview ? 'warn' : '',
+          content: (
+            <div>
+              <div className="bar" style={{ margin: preview ? '0 0 8px' : 0 }}>
+                <label>Allocation profile</label>
+                <select value={profile} onChange={e => pickProfile(e.target.value)} style={{ minWidth: 300 }}>
+                  <option value="">— apply a profile instead —</option>
+                  {profiles.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+                </select>
+                {busy === 'preview' && <span className="muted">Building it…</span>}
+                <span style={{ flex: 1 }} />
+                {suggestion.length > 0 && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {suggestion.length} prior posting{suggestion.length === 1 ? '' : 's'} for this vendor
+                  </span>
+                )}
+              </div>
+
+              {preview && (
+                <div className="note" style={{ marginBottom: 0 }}>
+                  <b>This is what would be posted</b>
+                  <table style={{ marginTop: 6 }}>
+                    <tbody>
+                      {preview.map((l, i) => (
+                        <tr key={i}>
+                          <td style={{ width: 60 }}><span className="pill">{l.business}</span></td>
+                          <td style={{ width: 90 }} className="muted">{l.gl_number}</td>
+                          <td>
+                            {l.gl_name || <span className="neg">not in this chart</span>}
+                            {(l.why || l.memo) && (
+                              <div className="muted" style={{ fontSize: 11 }}>{l.why || l.memo}</div>
+                            )}
+                          </td>
+                          <td className="money" style={{ width: 100 }}>{num(l.debit) ? money(l.debit) : ''}</td>
+                          <td className="money" style={{ width: 100 }}>{num(l.credit) ? money(l.credit) : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="bar" style={{ margin: '8px 0 0' }}>
+                    <button className="primary" onClick={applyPreview}>Fill the draft with this</button>
+                    <button onClick={() => { setPreview(null); setProfile('') }}>Discard</button>
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      It only fills the Entry tab — accounts, amounts and projects all stay editable,
+                      and nothing is saved until you press Save.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ),
+        },
+        {
+          // the draft, always seeded
+          key: 'entry', label: 'Entry',
+          tone: lines && offBy.length ? 'warn' : '',
+          badge: !lines ? '' : lines.length
+            ? `${filled.length} line${filled.length === 1 ? '' : 's'}`
+              + (offBy.length ? ' · does not balance' : ' · balances')
+            : 'empty',
+          content: !lines ? <div className="loading">Reading…</div> : (
+            <div>
+              {seedSource && SOURCE_LABEL[seedSource] && (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  prefilled from {SOURCE_LABEL[seedSource]}
+                </div>
+              )}
+
+              <table style={{ marginTop: 6 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 90 }}>Entity</th>
+                    <th>Account</th>
+                    <th className="num" style={{ width: 120 }}>Debit</th>
+                    <th className="num" style={{ width: 120 }}>Credit</th>
+                    <th style={{ width: 150 }}>Projects</th>
+                    <th style={{ width: 36 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((l, i) => (
+                    <tr key={i}>
+                      <td>
+                        <select value={l.business} onChange={e => setLine(i, 'business', e.target.value)}>
+                          <option value="">—</option>
+                          {entities.map(b => <option key={b.code} value={b.code}>{b.code}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select value={l.account} onChange={e => setLine(i, 'account', e.target.value)}
+                                disabled={!l.business} style={{ width: '100%' }}>
+                          <option value="">—</option>
+                          {accountsFor(l.business).map(a => (
+                            <option key={a.number} value={a.number}>{a.number} — {a.name}</option>
+                          ))}
+                          {l.account && !accountsFor(l.business).some(a => a.number === l.account) && (
+                            <option value={l.account}>{l.account} — not in this chart</option>
+                          )}
+                        </select>
+                        {l.basis && <div className="muted" style={{ fontSize: 11 }}>{l.basis}</div>}
+                      </td>
+                      <td>
+                        <input type="number" step="0.01" className="num" value={l.debit}
+                               disabled={num(l.credit) > 0}
+                               onChange={e => setLine(i, 'debit', e.target.value)} />
+                      </td>
+                      <td>
+                        <input type="number" step="0.01" className="num" value={l.credit}
+                               disabled={num(l.debit) > 0}
+                               onChange={e => setLine(i, 'credit', e.target.value)} />
+                      </td>
+                      <td style={{ fontSize: 11 }}>
+                        {/* Tick boxes, not a multi-select: a line can carry several
+                            projects, and a list where ctrl-click is the only way to
+                            pick a second one reads as "choose one". */}
+                        <ProjectPicker value={l.projects} projects={projects}
+                                       onChange={v => setLine(i, 'projects', v)} />
+                      </td>
+                      <td>
+                        {lines.length > 2 && (
+                          <button onClick={() => setLines(ls => ls.filter((_, j) => j !== i))}>×</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="bar" style={{ margin: '8px 0 0' }}>
+                <button onClick={() => setLines(ls => [...ls, blank()])}>Add a line</button>
+                <button onClick={toggleSplit} disabled={!(lines || []).some(l => num(l.debit))}
+                        title="Halves every debit line and leaves the credit alone — the card was charged once.">
+                  {splitState === 0 ? 'Split the debits in 2'
+                    : splitState === 2 ? 'Split into 4'
+                    : 'Undo the split'}
+                </button>
+                <button onClick={load}>Reset</button>
+                <span style={{ flex: 1 }} />
+                {Object.entries(perBiz).map(([b, v]) => (
+                  <span key={b} className="muted" style={{ fontSize: 12 }}>
+                    {b}: {money(v.d)} / {money(v.c)}
+                  </span>
+                ))}
+                <button disabled={!canSave || !!busy} onClick={() => save(false)}>
+                  {busy === 'save' ? 'Saving…' : 'Save'}
+                </button>
+                <button className="primary" disabled={!canSave || !!busy} onClick={() => save(true)}>
+                  {busy === 'saverev' ? 'Saving…'
+                    : apDebit && apWarned ? 'Save anyway — no invoice marked paid'
+                    : 'Save and mark reviewed'}
+                </button>
+                <button disabled={!!busy} onClick={holdForInvoice}
+                        title="Posts nothing. Moves this to the waiting queue until an invoice is matched to it, then it comes back here.">
+                  {busy === 'hold' ? 'Holding…' : 'Hold for the invoice'}
+                </button>
+              </div>
+
+              <div className="bar" style={{ margin: '8px 0 0' }}>
+                <label htmlFor="txnNote">Note</label>
+                <input id="txnNote" value={txnNote} onChange={e => setTxnNote(e.target.value)}
+                       placeholder="Saved with the entry — what this was, in your words"
+                       style={{ flex: 1, minWidth: 260 }} />
+              </div>
+
+              {offBy.length > 0 && (
+                <div className="note warn" style={{ marginTop: 8, marginBottom: 0 }}>
+                  <b>Not balanced.</b>{' '}
+                  {offBy.map((x, i) => (
+                    <span key={x.business}>
+                      {i > 0 && ' · '}{x.business} is out by {money(Math.abs(x.diff))}{' '}
+                      ({x.diff > 0 ? 'debits exceed credits' : 'credits exceed debits'})
+                    </span>
+                  ))}
+                  <div className="fine">
+                    Each entity has to balance on its own. An entry balancing only in total would
+                    quietly move money between businesses.
+                  </div>
+                </div>
+              )}
+            </div>
+          ),
+        },
+      ]} />
     </div>
   )
 }

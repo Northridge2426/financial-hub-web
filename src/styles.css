@@ -413,3 +413,40 @@ h3.cfhead span { margin-left: auto; font-variant-numeric: tabular-nums; }
 .coding .codinggroup { margin-bottom: 10px; }
 .coding .codinghead { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; margin: 2px 0 4px; }
 .coding table { font-size: 12px; background: var(--card); }
+
+/* ---------- tabs in a detail panel (Tabs.jsx) ----------
+   Prefixed "p" (panel): plain .tabs is the top navigation, and the print
+   stylesheet hides it.
+   The transaction and invoice editors. One job on screen at a time; every tab
+   label still carries its badge so a tab you are not on can say "needs you". */
+.ptabs { margin-bottom: 8px; }
+.ptabbar {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.ptab {
+  border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0;
+  background: transparent; padding: 6px 11px; font-size: 12.5px; color: #475569;
+  margin-bottom: -1px; display: inline-flex; align-items: center; gap: 6px;
+}
+.ptab:hover { background: var(--bg); color: var(--ink); }
+.ptab.on {
+  background: var(--card); border-color: var(--line); color: var(--ink);
+  font-weight: 600; box-shadow: inset 0 2px 0 var(--accent);
+}
+.ptabbadge {
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  background: #f1f5f9; border-radius: 999px; padding: 0 6px;
+}
+.ptabbadge.warn { color: #92400e; background: #fffbeb; font-weight: 600; }
+.ptabbadge.bad  { color: #991b1b; background: #fef2f2; font-weight: 600; }
+.ptabbadge.good { color: #065f46; background: #ecfdf5; }
+.ptabpane {
+  border: 1px solid var(--line); border-top: 0; border-radius: 0 0 8px 8px;
+  background: var(--card); padding: 10px 12px 12px;
+}
+.ptabpane > .bar:last-child { margin-bottom: 0; }
+
+/* ---------- bulk coding bar on a review queue ---------- */
+.bulkbar { background: #f3f6ff; border-color: #c7d2fe; }
+.bulkbar .sep { width: 1px; align-self: stretch; background: #c7d2fe; margin: 0 4px; }

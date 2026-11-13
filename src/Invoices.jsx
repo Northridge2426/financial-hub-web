@@ -3,7 +3,7 @@ import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import DocLink from './DocLink.jsx'
-import Section from './Section.jsx'
+import Tabs from './Tabs.jsx'
 import ReceiptLines from './ReceiptLines.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
 
@@ -27,6 +27,7 @@ export default function Invoices() {
   const [rows, setRows] = useState(null)
   const [sel, setSel] = useState(null)
   const [lines, setLines] = useState(null)
+  const [invTab, setInvTab] = useState('lines')   // line by line | entry
   const [accounts, setAccounts] = useState([])
   const [projects, setProjects] = useState([])
   const [gstRole, setGstRole] = useState({})     // business code -> GST account
@@ -64,7 +65,7 @@ export default function Invoices() {
 
   async function open(r) {
     if (sel === r.id) { setSel(null); setLines(null); return }
-    setSel(r.id); setLines(null); setErr(''); setMsg(''); setFollowup(null)
+    setSel(r.id); setLines(null); setErr(''); setMsg(''); setFollowup(null); setInvTab('lines')
     try {
       const seed = await rpc('web_invoice_seed', { p_receipt: r.id })
       setLines(seed.map(l => ({
@@ -335,12 +336,15 @@ export default function Invoices() {
                               </div>
                             )}
 
-                            {num(r.item_lines) > 0 && (
-                              <Section title="The invoice, line by line"
-                                       count={`${r.item_lines} item lines`} defaultOpen>
-                                <ReceiptLines
+                            <Tabs active={invTab} fallback="entry" onChange={setInvTab} tabs={[
+                              {
+                                key: 'lines', label: 'The invoice, line by line',
+                                hidden: !(num(r.item_lines) > 0),
+                                badge: `${r.item_lines} item lines`,
+                                content: (
+                                  <ReceiptLines
                                   txnId={null} receiptId={r.id}
-                                  onBuild={built => setLines(built.map(l => ({
+                                  onBuild={built => { setLines(built.map(l => ({
                                     business: l.business || '',
                                     account: l.account || '',
                                     debit: num(l.debit) || '',
@@ -349,10 +353,16 @@ export default function Invoices() {
                                     role: l.role === 'gst' ? 'gst'
                                         : l.role === 'payable' ? 'payable' : 'expense',
                                     projects: l.project_ids || [],
-                                  })))} />
-                              </Section>
-                            )}
-
+                                  }))); setInvTab('entry') }} />
+                                ),
+                              },
+                              {
+                                key: 'entry', label: 'Entry',
+                                tone: offBy.length ? 'warn' : '',
+                                badge: `${lines.length} line${lines.length === 1 ? '' : 's'}`
+                                  + (offBy.length ? ' · does not balance' : ''),
+                                content: (
+                                  <div>
                             <table style={{ marginTop: 6 }}>
                               <thead>
                                 <tr>
@@ -458,6 +468,10 @@ export default function Invoices() {
                                 </div>
                               </div>
                             )}
+                                  </div>
+                                ),
+                              },
+                            ]} />
                           </div>
                         )}
                       </td>
