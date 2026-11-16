@@ -55,7 +55,8 @@ or drop any of them.** If something misbehaves under RLS, change the *policy*
 (invisible to the service role) or write a *new* function. Never edit the one the
 console calls.
 
-See `../WEB APP — parity inventory.md` for the full list and the page checklist.
+See `../WEB APP — state and what remains.md` for what the app covers now (the build-time
+parity inventory is in `../Archived/`).
 A byte-identical backup of the console sits in `../Archived/console-backups/`.
 
 ---
