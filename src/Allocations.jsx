@@ -22,6 +22,7 @@ export default function Allocations() {
   const [profiles, setProfiles] = useState(null)
   const [lines, setLines] = useState({})
   const [accounts, setAccounts] = useState([])
+  const [projectNames, setProjectNames] = useState({})
   const [open, setOpen] = useState(null)
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
@@ -40,7 +41,7 @@ export default function Allocations() {
     setProfiles(data || [])
 
     const { data: pl } = await supabase.from('allocation_profile_lines')
-      .select('profile_id,percent,businesses(code),gl_accounts(number,name)')
+      .select('profile_id,percent,project_ids,businesses(code),gl_accounts(number,name)')
     const m = {}
     for (const l of pl || []) (m[l.profile_id] ||= []).push(l)
     setLines(m)
@@ -52,6 +53,8 @@ export default function Allocations() {
     supabase.from('v_chart_of_accounts').select('business,number,name')
       .eq('usable', true).eq('postable', true).order('number')
       .then(({ data }) => setAccounts(data || []))
+    supabase.from('projects').select('id,name')
+      .then(({ data }) => setProjectNames(Object.fromEntries((data || []).map(p => [p.id, p.name]))))
   }, [])
 
   const total = parts.reduce((a, p) => a + num(p.percent), 0)
@@ -200,6 +203,11 @@ export default function Allocations() {
                                 {l.gl_accounts
                                   ? `${l.gl_accounts.number} — ${l.gl_accounts.name}`
                                   : 'no account fixed — picked each time'}
+                                {(l.project_ids || []).length > 0 && (
+                                  <span style={{ marginLeft: 8 }}>
+                                    · projects: {l.project_ids.map(id => projectNames[id] || '?').join(', ')}
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           ))}

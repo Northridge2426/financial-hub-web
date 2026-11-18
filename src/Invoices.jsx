@@ -6,6 +6,7 @@ import DocLink from './DocLink.jsx'
 import Tabs from './Tabs.jsx'
 import ReceiptLines from './ReceiptLines.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
+import { SavedAllocationBar, RecommendedCoding } from './InvoiceCodingTools.jsx'
 
 const num = v => Number(v) || 0
 
@@ -32,6 +33,8 @@ export default function Invoices() {
   const [projects, setProjects] = useState([])
   const [gstRole, setGstRole] = useState({})     // business code -> GST account
   const [followup, setFollowup] = useState(null) // receipts found after booking
+  const [recCount, setRecCount] = useState(null) // earlier invoices from this vendor
+  const [copiedFrom, setCopiedFrom] = useState('') // the coding now in the grid came from
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
@@ -66,6 +69,7 @@ export default function Invoices() {
   async function open(r) {
     if (sel === r.id) { setSel(null); setLines(null); return }
     setSel(r.id); setLines(null); setErr(''); setMsg(''); setFollowup(null); setInvTab('lines')
+    setRecCount(null); setCopiedFrom('')
     try {
       const seed = await rpc('web_invoice_seed', { p_receipt: r.id })
       setLines(seed.map(l => ({
@@ -357,12 +361,31 @@ export default function Invoices() {
                                 ),
                               },
                               {
+                                key: 'recommended', label: 'Recommended coding',
+                                alwaysMounted: true,
+                                badge: recCount == null ? '' : recCount === 0 ? 'none' : String(recCount),
+                                content: (
+                                  <RecommendedCoding key={r.id} receiptId={r.id}
+                                    onCount={setRecCount}
+                                    onUse={(built, src) => {
+                                      setLines(built)
+                                      setCopiedFrom(`Coding copied from ${src.doc_no || 'an earlier invoice'} (${src.doc_date})`
+                                        + (src.same_amount ? ' — same amount, so the same entry.' : ', scaled to this invoice\'s amount.')
+                                        + ' Check it, then book.')
+                                      setInvTab('entry')
+                                    }} />
+                                ),
+                              },
+                              {
                                 key: 'entry', label: 'Entry',
                                 tone: offBy.length ? 'warn' : '',
                                 badge: `${lines.length} line${lines.length === 1 ? '' : 's'}`
                                   + (offBy.length ? ' · does not balance' : ''),
                                 content: (
                                   <div>
+                            <SavedAllocationBar key={r.id} receiptId={r.id} lines={lines}
+                              onApply={built => { setLines(built); setCopiedFrom('') }} />
+                            {copiedFrom && <div className="note good" style={{ marginBottom: 6 }}>{copiedFrom}</div>}
                             <table style={{ marginTop: 6 }}>
                               <thead>
                                 <tr>
@@ -440,7 +463,7 @@ export default function Invoices() {
                               }])}>
                                 Add a line
                               </button>
-                              <button onClick={() => open(r)}>Reset</button>
+                              <button onClick={() => { setCopiedFrom(''); open(r) }}>Reset</button>
                               <span style={{ flex: 1 }} />
                               {Object.entries(perBiz).map(([b, v]) => (
                                 <span key={b} className="muted" style={{ fontSize: 12 }}>
