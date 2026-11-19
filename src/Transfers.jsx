@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money, today } from './format.js'
+import DocLink, { winPath } from './DocLink.jsx'
 
 const num = v => Number(v) || 0
 const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
@@ -17,6 +18,11 @@ const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
  * outside the accounts you track, in which case it is recorded one-sided, sent
  * to a GL account, or — if it turned out not to be a transfer at all — pushed
  * back to the expense queues.
+ *
+ * Every line carries buttons for its source documents — the statement it came
+ * from and any receipt or invoice attached to it (`web_tp_docs`). A browser
+ * cannot open a OneDrive file from an https page, so each button copies the
+ * Windows path; paste it into File Explorer's address bar or Win+R to open it.
  */
 export default function Transfers() {
   const [from, setFrom] = useState('2026-01-01')
@@ -31,6 +37,20 @@ export default function Transfers() {
   const [busy, setBusy] = useState('')
   const [alts, setAlts] = useState(null)        // { legId, rows }
   const [choice, setChoice] = useState({})      // legId -> { mode, target, note }
+  const [docs, setDocs] = useState({})          // txn id -> [{ kind, label, path }]
+
+  /** Statement + attached documents for these lines, merged into `docs`. */
+  const loadDocs = useCallback(async (ids, replace) => {
+    const want = [...new Set(ids.filter(Boolean))]
+    if (!want.length) { if (replace) setDocs({}); return }
+    try {
+      const rows = await rpc('web_tp_docs', { p_ids: want })
+      const byTxn = {}
+      for (const d of rows) (byTxn[d.txn_id] ||= []).push(d)
+      for (const k in byTxn) byTxn[k].sort((a, b) => (a.kind === 'stmt' ? -1 : 1) - (b.kind === 'stmt' ? -1 : 1))
+      setDocs(cur => replace ? byTxn : { ...cur, ...byTxn })
+    } catch (e) { setErr('Source documents: ' + e.message) }
+  }, [])
 
   useEffect(() => {
     supabase.from('accounts').select('id,name').eq('active', true).order('name')
@@ -48,10 +68,12 @@ export default function Transfers() {
         rpc('web_transfer_match_plan', args),
         rpc('web_tp_unmatched', args),
       ])
-      setPlan(p.filter(r => !r.already_paired))
+      const open = p.filter(r => !r.already_paired)
+      setPlan(open)
       setLegs(l)
+      loadDocs([...open.flatMap(r => [r.leg_id, r.cpty_id]), ...l.map(r => r.leg_id)], true)
     } catch (e) { setErr(e.message) }
-  }, [from, to, window])
+  }, [from, to, window, loadDocs])
 
   useEffect(() => { load() }, [load])
 
@@ -69,7 +91,9 @@ export default function Transfers() {
     if (alts && alts.legId === legId) { setAlts(null); return }
     setAlts({ legId, rows: null })
     try {
-      setAlts({ legId, rows: await rpc('tp_alternatives', { p_leg: legId, p_window: Number(window) }) })
+      const rows = await rpc('tp_alternatives', { p_leg: legId, p_window: Number(window) })
+      setAlts({ legId, rows })
+      loadDocs(rows.map(a => a.cpty_id), false)
     } catch (e) { setErr(e.message); setAlts(null) }
   }
 
@@ -82,6 +106,11 @@ export default function Transfers() {
         Money moving between your own accounts. Accepting a match posts <b>both</b> legs, so the
         coding it would use is printed on the row — you should not have to click to find out what
         will happen.
+      </p>
+      <p className="hint">
+        <b>stmt</b> and <b>doc</b> buttons copy the path of that line's statement or attached
+        document. Paste it into File Explorer's address bar (or Win+R) to open it. Hover a button to
+        see which file it is.
       </p>
 
       <div className="bar">
@@ -129,8 +158,10 @@ export default function Transfers() {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                 <b>${money(r.leg_amount)}</b>
                 <span className="muted">{r.leg_ref} {r.leg_account} ({r.leg_date})</span>
+                <Docs list={docs[r.leg_id]} />
                 <span>↔</span>
                 <span className="muted">{r.cpty_ref} {r.cpty_account} ({r.cpty_date})</span>
+                <Docs list={docs[r.cpty_id]} />
                 <span className={'pill ' + (num(r.confidence) >= 80 ? 'soft' : 'hold')}>
                   {r.confidence}%
                 </span>
@@ -145,6 +176,10 @@ export default function Transfers() {
                 )}
               </div>
 
+              <div style={{ fontSize: 12, marginTop: 3 }}>
+                <span className="muted">{r.leg_ref}:</span> {r.leg_descr}
+                <span className="muted"> ↔ {r.cpty_ref}:</span> {r.cpty_descr}
+              </div>
               <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{r.why}</div>
               {r.coding && (
                 <div style={{ fontSize: 12, marginTop: 3, fontFamily: 'ui-monospace, Menlo, monospace' }}>
@@ -173,7 +208,7 @@ export default function Transfers() {
               </div>
 
               {alts && alts.legId === r.leg_id && (
-                <Alternatives alts={alts} legId={r.leg_id} busy={busy} act={act} />
+                <Alternatives alts={alts} legId={r.leg_id} busy={busy} act={act} docs={docs} />
               )}
             </div>
           ))}
@@ -207,7 +242,7 @@ export default function Transfers() {
                   {num(l.near_misses) > 0 && (
                     <span className="pill hold">{l.near_misses} near miss{num(l.near_misses) === 1 ? '' : 'es'}</span>
                   )}
-                  {l.leg_stmt && <span className="pill soft">stmt</span>}
+                  <Docs list={docs[l.leg_id]} />
                 </div>
                 <div style={{ fontSize: 12, marginTop: 2 }}>{l.leg_descr}</div>
                 {l.suggestion && (
@@ -282,7 +317,7 @@ export default function Transfers() {
                 </div>
 
                 {alts && alts.legId === l.leg_id && (
-                  <Alternatives alts={alts} legId={l.leg_id} busy={busy} act={act} />
+                  <Alternatives alts={alts} legId={l.leg_id} busy={busy} act={act} docs={docs} />
                 )}
               </div>
             )
@@ -294,7 +329,19 @@ export default function Transfers() {
 }
 
 /** Every candidate within the window, for a leg the engine could not settle. */
-function Alternatives({ alts, legId, busy, act }) {
+/**
+ * Copy-path buttons for one line's source documents: its statement first, then
+ * any receipt or invoice attached to it. The tooltip names the file.
+ */
+function Docs({ list }) {
+  if (!list || !list.length) return null
+  return list.map((d, i) => (
+    <DocLink key={d.kind + i} path={d.path} label={d.kind === 'stmt' ? 'stmt' : 'doc'}
+             title={`${d.label}\n${winPath(d.path)}\n\nClick to copy the path.`} />
+  ))
+}
+
+function Alternatives({ alts, legId, busy, act, docs }) {
   if (!alts.rows) return <div className="loading">Looking…</div>
   if (!alts.rows.length) return <div className="muted" style={{ marginTop: 6 }}>Nothing else within the window.</div>
   return (
@@ -317,6 +364,7 @@ function Alternatives({ alts, legId, busy, act }) {
             <td style={{ fontSize: 12 }}>{a.cpty_account}</td>
             <td>
               {a.cpty_descr}
+              <Docs list={docs[a.cpty_id]} />
               {a.note && <div className="muted" style={{ fontSize: 11 }}>{a.note}</div>}
             </td>
             <td className="money">{a.day_gap}d</td>
