@@ -10,7 +10,7 @@ import DocLink from './DocLink.jsx'
  * The list's `detail` column is every line joined with "·", which reads well
  * for a two-line entry and not at all for a ten-line one. Same lines, columns.
  */
-function EntryDetail({ id }) {
+export function EntryDetail({ id }) {
   const [lines, setLines] = useState(null)
   const [docs, setDocs] = useState(null)
   const [err, setErr] = useState('')

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money, today } from './format.js'
 import { useEntities } from './useEntities.js'
+import ProjectLines from './ProjectLines.jsx'
 
 const num = v => Number(v) || 0
 const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
@@ -27,6 +28,9 @@ export default function Projects() {
   const [newKind, setNewKind] = useState('other')
   const [adding, setAdding] = useState(false)
   const [msg, setMsg] = useState('')
+  // which figure is opened to its lines: 'T:<project id>' for a total,
+  // '<project id>|<entity>|<account>' for an account row
+  const [openKey, setOpenKey] = useState(null)
   const entities = useEntities()
 
   const loadProjects = () =>
@@ -66,6 +70,16 @@ export default function Projects() {
       .catch(e => setErr(e.message))
   }, [picked, biz, from, to])
 
+  // a different window or filter means different lines; close whatever was open
+  useEffect(() => { setOpenKey(null) }, [picked, biz, from, to])
+
+  const flip = k => setOpenKey(o => (o === k ? null : k))
+  // re-read the totals after a re-code, without losing the open drill-down
+  const refresh = () => Promise.all([
+    rpc('project_report_totals', { p_projects: picked.length ? picked : null, p_from: from, p_to: to, p_business: biz || null }),
+    rpc('project_report', { p_projects: picked.length ? picked : null, p_from: from, p_to: to, p_business: biz || null }),
+  ]).then(([totals, lines]) => setData({ totals, lines })).catch(e => setErr(e.message))
+
   const toggle = id =>
     setPicked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
 
@@ -74,6 +88,8 @@ export default function Projects() {
       <p className="hint">
         Projects are tags, not folders — a line can carry several. A line counted under two
         projects appears under both, which is why the totals below do not add to a grand total.
+        Click a project or an account row to see its ledger lines; click a line for its entry,
+        documents and coding. Each line can carry a note for this project.
       </p>
 
       <div className="bar">
@@ -143,9 +159,16 @@ export default function Projects() {
                 </tr>
               </thead>
               <tbody>
-                {[...data.totals].sort((a, b) => a.sort_key - b.sort_key).map(t => (
-                  <tr key={t.project}>
-                    <td><b>{t.project}</b></td>
+                {[...data.totals].sort((a, b) => a.sort_key - b.sort_key).flatMap(t => {
+                  // totals carry the name only; project_report's rows carry the id
+                  const pid = (data.lines.find(l => l.project === t.project) || {}).project_id
+                  const k = 'T:' + pid
+                  const isOpen = !!pid && openKey === k
+                  return [
+                  <tr key={t.project} className={(pid ? 'drill' : '') + (isOpen ? ' rowsel' : '')}
+                      title={pid ? 'Show every line in this project' : undefined}
+                      onClick={() => pid && flip(k)}>
+                    <td><span className="caret">{pid ? (isOpen ? '▾' : '▸') : ''}</span> <b>{t.project}</b></td>
                     <td className="money">{num(t.revenue) ? '$' + money(t.revenue) : <span className="muted">—</span>}</td>
                     <td className="money">{num(t.expense) ? '$' + money(t.expense) : <span className="muted">—</span>}</td>
                     <td className={'money ' + (num(t.net) < 0 ? 'neg' : 'pos')}>{signed(t.net)}</td>
@@ -157,8 +180,17 @@ export default function Projects() {
                           </span>
                         : <span className="muted">—</span>}
                     </td>
-                  </tr>
-                ))}
+                  </tr>,
+                  isOpen && (
+                    <tr key={t.project + '-d'} className="expand">
+                      <td colSpan={6}>
+                        <ProjectLines project={pid} from={from} to={to} business={biz}
+                                      onChanged={refresh} />
+                      </td>
+                    </tr>
+                  ),
+                  ]
+                })}
               </tbody>
             </table>
           </div>
@@ -167,7 +199,7 @@ export default function Projects() {
             const byProject = []
             for (const l of data.lines) {
               let g = byProject.find(x => x.project === l.project)
-              if (!g) { g = { project: l.project, rows: [] }; byProject.push(g) }
+              if (!g) { g = { project: l.project, id: l.project_id, rows: [] }; byProject.push(g) }
               g.rows.push(l)
             }
             return byProject.map(g => (
@@ -176,7 +208,7 @@ export default function Projects() {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: 62 }}>Entity</th>
+                      <th style={{ width: 80 }}>Entity</th>
                       <th style={{ width: 110 }}>Section</th>
                       <th style={{ width: 80 }}>Number</th>
                       <th>Account</th>
@@ -187,9 +219,14 @@ export default function Projects() {
                     </tr>
                   </thead>
                   <tbody>
-                    {g.rows.map((r, i) => (
-                      <tr key={i}>
-                        <td><span className="pill">{r.business}</span></td>
+                    {g.rows.flatMap((r, i) => {
+                      const k = `${g.id}|${r.business}|${r.gl_number}`
+                      const isOpen = openKey === k
+                      return [
+                      <tr key={k} className={'drill' + (isOpen ? ' rowsel' : '')}
+                          title="Show the ledger lines behind this figure"
+                          onClick={() => flip(k)}>
+                        <td><span className="caret">{isOpen ? '▾' : '▸'}</span> <span className="pill">{r.business}</span></td>
                         <td className="muted" style={{ fontSize: 12 }}>{r.section}</td>
                         <td className="muted">{r.gl_number}</td>
                         <td>{r.account}</td>
@@ -197,8 +234,18 @@ export default function Projects() {
                         <td className="money">{num(r.credit) ? money(r.credit) : ''}</td>
                         <td className="money"><b>{signed(r.net)}</b></td>
                         <td className="money">{r.lines}</td>
-                      </tr>
-                    ))}
+                      </tr>,
+                      isOpen && (
+                        <tr key={k + '-d'} className="expand">
+                          <td colSpan={8}>
+                            <ProjectLines project={g.id} from={from} to={to}
+                                          business={r.business} glNumber={r.gl_number}
+                                          onChanged={refresh} />
+                          </td>
+                        </tr>
+                      ),
+                      ]
+                    })}
                   </tbody>
                 </table>
               </div>
