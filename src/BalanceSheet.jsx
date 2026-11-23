@@ -4,6 +4,7 @@ import { money, today } from './format.js'
 import { useEntities } from './useEntities.js'
 import { useReportGroups } from './useReportGroups.js'
 import StatementTable from './StatementTable.jsx'
+import { AsOfPicker } from './PeriodPicker.jsx'
 
 const ALL = '__ALL__'
 
@@ -59,6 +60,7 @@ export default function BalanceSheet() {
         </select>
         <label htmlFor="bsAsOf">As at</label>
         <input id="bsAsOf" type="date" value={asOf} onChange={e => setAsOf(e.target.value)} />
+        <AsOfPicker value={asOf} onChange={setAsOf} />
       </div>
 
       {err && <div className="err">{err}</div>}

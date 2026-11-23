@@ -4,6 +4,7 @@ import { money, today } from './format.js'
 import { useEntities } from './useEntities.js'
 import Section from './Section.jsx'
 import DrillLines from './DrillLines.jsx'
+import PeriodPicker from './PeriodPicker.jsx'
 
 /**
  * Cash flow — a port of the console's `cashflow` pane (runCashflow in
@@ -30,18 +31,6 @@ const ALL = '__ALL__'
 const n = v => Number(v) || 0
 const EPS = 0.004
 const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`
-
-/** Local YYYY-MM-DD for the first of the month `back` months before this one. */
-function monthStart(back) {
-  const d = new Date()
-  const m = new Date(d.getFullYear(), d.getMonth() - back, 1)
-  return `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}-01`
-}
-const SNAPS = [
-  ['Year to date',  () => `${new Date().getFullYear()}-01-01`],
-  ['This month',    () => monthStart(0)],
-  ['Last 3 months', () => monthStart(2)],
-]
 
 /** The figure printed beside a fold's title, as the console's cfAmt does. */
 const Amt = ({ v }) => <span className="cfamt">{money(v)}</span>
@@ -327,13 +316,10 @@ export default function CashFlow() {
           <option value={ALL}>Combined — all entities</option>
           {entities.map(b => <option key={b.code} value={b.code}>{b.code} — {b.name}</option>)}
         </select>
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <input type="date" value={from} onChange={e => setFrom(e.target.value)} aria-label="From" />
         <label>to</label>
         <input type="date" value={to} onChange={e => setTo(e.target.value)} aria-label="To" />
-        {SNAPS.map(([label, fn]) => (
-          <button key={label} type="button" className="mini"
-                  onClick={() => { setFrom(fn()); setTo(today()) }}>{label}</button>
-        ))}
         <button type="button" className="mini" onClick={() => setRun(x => x + 1)}>Refresh</button>
         <button type="button" className="mini" onClick={() => window.print()}>Print / PDF</button>
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, rpc } from './supabase.js'
 import { money, today } from './format.js'
+import PeriodPicker from './PeriodPicker.jsx'
 
 const num = v => Number(v) || 0
 
@@ -73,6 +74,7 @@ export default function Ledger() {
           </select>
         )}
 
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="lgFrom">From</label>
         <input id="lgFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="lgTo">To</label>

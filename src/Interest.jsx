@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { rpc } from './supabase.js'
 import { money, today } from './format.js'
+import PeriodPicker from './PeriodPicker.jsx'
 
 const num = v => Number(v) || 0
 /** Signed money, minus sign rendered as a true minus rather than a hyphen. */
@@ -31,6 +32,7 @@ export default function Interest() {
       </p>
 
       <div className="bar">
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="iFrom">From</label>
         <input id="iFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="iTo">To</label>

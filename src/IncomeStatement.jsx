@@ -4,6 +4,7 @@ import { today } from './format.js'
 import { useEntities } from './useEntities.js'
 import { useReportGroups } from './useReportGroups.js'
 import StatementTable from './StatementTable.jsx'
+import PeriodPicker from './PeriodPicker.jsx'
 
 const ALL = '__ALL__'
 
@@ -54,6 +55,7 @@ export default function IncomeStatement() {
           )}
           {entities.map(b => <option key={b.code} value={b.code}>{b.code} — {b.name}</option>)}
         </select>
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="isFrom">From</label>
         <input id="isFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="isTo">To</label>

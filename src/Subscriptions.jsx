@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { rpc } from './supabase.js'
 import { money, today } from './format.js'
 import { useEntities } from './useEntities.js'
+import PeriodPicker from './PeriodPicker.jsx'
 
 const num = v => Number(v) || 0
 
@@ -27,6 +28,7 @@ export default function Subscriptions() {
       </p>
 
       <div className="bar">
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="sbFrom">From</label>
         <input id="sbFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="sbTo">To</label>

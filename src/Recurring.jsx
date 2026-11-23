@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { rpc } from './supabase.js'
 import { money, today } from './format.js'
 import { useEntities } from './useEntities.js'
+import PeriodPicker from './PeriodPicker.jsx'
 
 const num = v => Number(v) || 0
 
@@ -111,6 +112,7 @@ export default function Recurring() {
       {msg && <div className="note good">{msg}</div>}
 
       <div className="bar">
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="rcFrom">From</label>
         <input id="rcFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="rcTo">To</label>

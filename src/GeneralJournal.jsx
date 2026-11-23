@@ -3,6 +3,7 @@ import { supabase, rpc } from './supabase.js'
 import { money } from './format.js'
 import { useEntities } from './useEntities.js'
 import DocLink from './DocLink.jsx'
+import PeriodPicker from './PeriodPicker.jsx'
 
 /**
  * One entry opened up: its coding as rows, and whatever paperwork supports it.
@@ -247,6 +248,8 @@ export default function GeneralJournal() {
           <option value="new here">New here</option>
           <option value="adjustment">Adjustment</option>
         </select>
+        <PeriodPicker from={from} to={to} allowAll disabled={searching}
+                      onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="gjFrom">From</label>
         <input id="gjFrom" type="date" value={from} disabled={searching}
                onChange={e => setFrom(e.target.value)} />

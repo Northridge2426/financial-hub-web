@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { rpc, supabase } from './supabase.js'
 import { money, today } from './format.js'
+import PeriodPicker from './PeriodPicker.jsx'
 
 const num = v => Number(v) || 0
 const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
@@ -88,6 +89,7 @@ export default function Gst() {
       {msg && <div className="note good">{msg}</div>}
 
       <div className="bar">
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="gsFrom">From</label>
         <input id="gsFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="gsTo">To</label>

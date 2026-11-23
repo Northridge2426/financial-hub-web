@@ -3,6 +3,7 @@ import { supabase, rpc } from './supabase.js'
 import { money, today } from './format.js'
 import { useEntities } from './useEntities.js'
 import ProjectLines from './ProjectLines.jsx'
+import PeriodPicker from './PeriodPicker.jsx'
 
 const num = v => Number(v) || 0
 const signed = v => (num(v) < 0 ? '−$' : '$') + money(Math.abs(num(v)))
@@ -97,6 +98,7 @@ export default function Projects() {
           <option value="">All entities</option>
           {entities.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
         </select>
+        <PeriodPicker from={from} to={to} onChange={p => { setFrom(p.from); setTo(p.to) }} />
         <label htmlFor="prFrom">From</label>
         <input id="prFrom" type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <label htmlFor="prTo">To</label>
