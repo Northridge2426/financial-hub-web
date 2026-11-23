@@ -19,6 +19,7 @@ export default function BankRecon() {
   const [sid, setSid] = useState('')
   const [bank, setBank] = useState(null)
   const [glLines, setGlLines] = useState(null)
+  const [summary, setSummary] = useState(null)
   const [pickBank, setPickBank] = useState([])
   const [pickGl, setPickGl] = useState([])
   const [preview, setPreview] = useState(null)
@@ -41,15 +42,16 @@ export default function BankRecon() {
   useEffect(() => { loadStatements() }, [loadStatements])
 
   const loadSides = useCallback(async () => {
-    if (!sid) { setBank(null); setGlLines(null); return }
-    setBank(null); setGlLines(null); setPreview(null)
+    if (!sid) { setBank(null); setGlLines(null); setSummary(null); return }
+    setBank(null); setGlLines(null); setSummary(null); setPreview(null)
     setPickBank([]); setPickGl([]); setErr('')
     try {
-      const [b, g] = await Promise.all([
+      const [b, g, sm] = await Promise.all([
         rpc('bank_rec_bank', { p_statement: sid }),
         rpc('bank_rec_gl', { p_statement: sid }),
+        rpc('bank_rec_summary', { p_statement: sid }),
       ])
-      setBank(b); setGlLines(g)
+      setBank(b); setGlLines(g); setSummary(sm && sm[0] ? sm[0] : null)
     } catch (e) { setErr(e.message) }
   }, [sid])
 
@@ -232,8 +234,6 @@ export default function BankRecon() {
 
       {st && (
         <div className="grid" style={{ marginBottom: 14 }}>
-          <div className="stat"><div className="n">{signed(st.opening_balance)}</div><div className="l">opening</div></div>
-          <div className="stat"><div className="n">{signed(st.closing_balance)}</div><div className="l">closing</div></div>
           <div className="stat">
             <div className={'n ' + (num(st.bank_open) ? 'warn' : 'pos')}>{st.bank_open}</div>
             <div className="l">bank lines open</div>
@@ -330,6 +330,7 @@ export default function BankRecon() {
         <div className="twocol">
           <div className="card">
             <h2>From the ledger ({glShown.length})</h2>
+            <RecSummary side="ledger" s={summary} lines={glLines} />
             <table>
               <tbody>
                 {glShown.length === 0 && (
@@ -367,6 +368,7 @@ export default function BankRecon() {
 
           <div className="card">
             <h2>From the statement ({bankShown.length})</h2>
+            <RecSummary side="statement" s={summary} lines={bank} />
             <table>
               <tbody>
                 {bankShown.length === 0 && (
@@ -425,3 +427,59 @@ export default function BankRecon() {
     </div>
   )
 }
+
+/**
+ * The running sum for one side, top to bottom:
+ *   opening + outstanding + matched (+ carried to the next period) = closing, then variance.
+ *
+ * Figures come from `bank_rec_summary`, not from the rows on screen, so "Hide what's
+ * already matched" cannot change them.
+ *
+ * Statement side: the variance is opening + this statement's own movement − its closing.
+ * Anything other than zero means a bank line is missing or wrongly signed. It is the same
+ * test `bank_rec_complete` refuses on, so it shows here before the error does.
+ *
+ * Ledger side: the ledger's own opening and closing for the GL account. The variance is
+ * the ledger closing − the statement closing: how far the books are from the bank at
+ * period end. Outstanding items on either side explain some or all of it. Where the
+ * ledger holds no opening (PER keeps no 2025 ledger), the opening difference is part of
+ * the variance, and it is shown separately so it is not mistaken for this period's error.
+ *
+ * Carried-in items belong to an earlier period. Their money is already inside the
+ * opening, so they are listed for information and kept out of the sum.
+ */
+function RecSummary({ side, s, lines }) {
+  if (!s) return <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Working out the totals…</div>
+  const st = side === 'statement'
+  const own = (lines || []).filter(r => !r.carried_in)
+  const nOut = own.filter(r => !r.matched).length
+  const nMat = own.filter(r => r.matched).length
+  const nIn = (lines || []).filter(r => r.carried_in).length
+  const v = k => num(s[(st ? 'stmt_' : 'gl_') + k])
+  const variance = v('variance')
+  const openDiff = st ? 0 : round2(num(s.gl_opening) - num(s.stmt_opening))
+  const zero = x => Math.abs(x) < 0.005
+  const row = (label, amount, opts = {}) => (
+    <tr className={opts.total ? 'total' : ''}>
+      <td className={opts.muted ? 'muted' : ''}>{label}</td>
+      <td className={'money ' + (opts.cls || '')} style={{ width: 130 }}>{signed(amount)}</td>
+    </tr>
+  )
+  return (
+    <table style={{ marginBottom: 12 }}>
+      <tbody>
+        {row(st ? 'Opening per statement' : 'Opening per ledger', v('opening'))}
+        {row(`Outstanding (${nOut})`, v('outstanding'), { cls: zero(v('outstanding')) ? '' : 'neg' })}
+        {row(`Matched (${nMat})`, v('matched'))}
+        {!zero(v('carried_away')) && row('Carried to the next period', v('carried_away'), { muted: true })}
+        {row(st ? 'Closing per statement' : 'Closing per ledger', v('closing'), { total: true })}
+        {row(st ? 'Variance — does the statement add up?' : 'Variance — ledger vs statement closing',
+             variance, { cls: zero(variance) ? 'pos' : 'neg' })}
+        {!st && !zero(openDiff) && row('…of which the opening differs by', openDiff, { muted: true })}
+        {nIn > 0 && row(`Carried in from earlier (${nIn}), already in the opening`, v('carried_in'), { muted: true })}
+      </tbody>
+    </table>
+  )
+}
+
+const round2 = x => Math.round(x * 100) / 100
