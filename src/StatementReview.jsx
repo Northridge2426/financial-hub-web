@@ -46,6 +46,7 @@ export default function StatementReview() {
   const [account, setAccount] = useState('')
   const [withGst, setWithGst] = useState(false)
   const [tags, setTags] = useState([])
+  const [sent, setSent] = useState(null)   // { to, rows: [{id, ref, outcome, moved}] }
   const entities = useEntities()
 
   const load = useCallback(async () => {
@@ -120,6 +121,47 @@ export default function StatementReview() {
     setBusy(false)
   }
 
+  /**
+   * "This one isn't mine to code here." Books nothing. A card payment or a
+   * movement between accounts goes to Transfers and payments, where the other
+   * side is matched before anything posts (no half transactions). A payment of
+   * a bill that has, or will have, an invoice goes to Assign receipts to
+   * invoices. A statement-only line has no document, so the mark sits on the
+   * transaction (queue_route) rather than going through classify_document.
+   *
+   * web_route_statement_lines answers per row: anything already coded, paired
+   * the other way, or reading as a fee is named and left here, never forced.
+   * The moved rows can be brought back with Undo.
+   */
+  async function sendTo(to) {
+    setBusy(true); setErr(''); setMsg(''); setSent(null)
+    try {
+      const out = await rpc('web_route_statement_lines', { p_ids: [...picked], p_to: to })
+      setSent({ to, rows: out || [] })
+      setPicked(new Set())
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+
+  async function undoSend() {
+    const ids = (sent?.rows || []).filter(r => r.moved).map(r => r.id)
+    if (!ids.length) return
+    setBusy(true); setErr('')
+    try {
+      const out = await rpc('web_route_statement_lines', { p_ids: ids, p_to: 'back' })
+      setSent({ to: 'back', rows: out || [] })
+      await load()
+    } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+
+  const DEST = {
+    transfer: 'Transfers and payments',
+    apply_to_invoice: 'Assign receipts to invoices',
+    back: 'Statement only — review',
+  }
+
   const owners = [...new Set((rows || []).map(r => r.owner))].sort()
   const buckets = [...new Set((rows || []).map(r => r.bucket))].sort()
 
@@ -134,6 +176,25 @@ export default function StatementReview() {
 
       {err && <div className="err">{err}</div>}
       {msg && <div className="note good">{msg}</div>}
+
+      {sent && (
+        <div className="note">
+          <b>
+            {sent.rows.filter(r => r.moved).length} of {sent.rows.length} sent to {DEST[sent.to]}
+          </b>
+          {sent.to !== 'back' && sent.rows.some(r => r.moved) && (
+            <button style={{ marginLeft: 10 }} disabled={busy} onClick={undoSend}>Undo</button>
+          )}
+          <button style={{ marginLeft: 6 }} onClick={() => setSent(null)}>Dismiss</button>
+          {sent.rows.some(r => !r.moved) && (
+            <ul style={{ margin: '6px 0 0', fontSize: 12 }}>
+              {sent.rows.filter(r => !r.moved).map(r => (
+                <li key={r.id}><b>{r.ref}</b> — {r.outcome}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="bar">
         <select value={bucket} onChange={e => setBucket(e.target.value)}>
@@ -187,6 +248,18 @@ export default function StatementReview() {
               <ProjectPicker value={tags} projects={projects} onChange={setTags} />
             </div>
           )}
+
+          <div className="bar" style={{ margin: '8px 0 0', flexWrap: 'wrap' }}>
+            <span className="muted" style={{ fontSize: 12 }}>Not coded here — send instead to</span>
+            <button disabled={busy} onClick={() => sendTo('transfer')}
+                    title="A card or loan payment, or money moving between your own accounts. It waits in Transfers and payments until the other side is matched, then both post together.">
+              Transfers and payments
+            </button>
+            <button disabled={busy} onClick={() => sendTo('apply_to_invoice')}
+                    title="A payment of a bill. It waits in Assign receipts to invoices to be applied to the invoice, whether or not the invoice has arrived yet.">
+              Assign receipts to invoices
+            </button>
+          </div>
 
           <p className="hint" style={{ margin: '6px 0 0' }}>
             The card's own account supplies the other side, and where the payer is not the entity
