@@ -108,7 +108,9 @@ export default function PaymentPriority() {
                         <td className="muted">{i + 1}</td>
                         <td>
                           <b>{r.name}</b> <span className="pill">{r.business}</span>
-                          {r.notes && <div className="muted" style={{ fontSize: 11 }}>{r.notes}</div>}
+                          <NoteField id={r.position_id} value={r.notes}
+                                     onSaved={v => setRows(rs => rs.map(x =>
+                                       x.position_id === r.position_id ? { ...x, notes: v } : x))} />
                         </td>
                         <td className="muted" style={{ fontSize: 12 }}>{r.class_label}</td>
                         <td className="money"><b>{pct(r).toFixed(2)}%</b></td>
@@ -166,6 +168,50 @@ export default function PaymentPriority() {
           </>
         )
       })()}
+    </div>
+  )
+}
+
+/**
+ * The position's note, edited in place — the same note the Overview edit form
+ * shows under the name. Saved when you leave the box or press Enter; Esc puts
+ * it back. `save_position` touches only the keys it is sent, so sending just
+ * `id` and `notes` leaves the rate, limit and everything else alone; an empty
+ * box clears the note.
+ */
+function NoteField({ id, value, onSaved }) {
+  const [text, setText] = useState(value || '')
+  const [state, setState] = useState('')   // '', 'saving', 'saved', or an error
+
+  useEffect(() => { setText(value || '') }, [value])
+
+  async function save() {
+    const t = (text || '').trim()
+    if (t === (value || '').trim()) return
+    setState('saving')
+    try {
+      await rpc('save_position', { p: { id, notes: t } })
+      onSaved(t || null)
+      setState('saved')
+      setTimeout(() => setState(s => (s === 'saved' ? '' : s)), 1500)
+    } catch (e) { setState(e.message) }
+  }
+
+  const bad = state && !['saving', 'saved'].includes(state)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+      <input value={text} placeholder="add a note…" title={bad ? state : text}
+             style={{ width: '100%', fontSize: 11.5, padding: '2px 6px',
+                      borderColor: bad ? '#fca5a5' : undefined }}
+             onChange={e => { setText(e.target.value); if (bad) setState('') }}
+             onBlur={save}
+             onKeyDown={e => {
+               if (e.key === 'Enter') e.currentTarget.blur()
+               if (e.key === 'Escape') { setText(value || ''); setState('') }
+             }} />
+      {state === 'saving' && <span className="muted" style={{ fontSize: 11 }}>…</span>}
+      {state === 'saved' && <span className="muted" style={{ fontSize: 11, color: '#047857' }}>✓</span>}
+      {bad && <span className="muted" style={{ fontSize: 11, color: '#b91c1c' }} title={state}>!</span>}
     </div>
   )
 }
